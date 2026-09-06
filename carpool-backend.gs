@@ -6,12 +6,23 @@
  * this one URL, so unlike a private family backend this one is deliberately
  * shared: the whole point is that the parents see the same board.
  *
+ * THIS SCRIPT MUST LIVE INSIDE ITS SPREADSHEET — created from the sheet's own
+ * Extensions > Apps Script, not as a standalone project. That is not a style
+ * preference. A standalone script has to find its spreadsheet by ID, and
+ * asking Google for the right to open a file by ID means asking for the right
+ * to open *every* spreadsheet in the account. Bound to one sheet, with
+ * oauthScopes pinned in the manifest (see appsscript.json in this repo), it
+ * can ask for that single file and nothing else.
+ *
  * Script Properties (Project Settings > Script properties):
  *   SHARED_SECRET   required — any long random string. Every request carries
  *                   it; without it the deployment answers nothing.
  *   GROUP_NAME      optional — shown in the app header, e.g. "כדורגל כיתה ג׳"
- *   SHEET_ID        written automatically the first time the script runs.
- *                   Leave it unset and a spreadsheet is created for you.
+ *
+ * The nightly "nobody has claimed tomorrow" reminder is deliberately NOT in
+ * this file: it needs permission to send mail as you and to run while you are
+ * away. It lives in carpool-reminder.gs, to be added only if you want it —
+ * so those two permissions are asked for when you opt in, not before.
  */
 
 const BACKEND_VERSION = 1;
@@ -69,11 +80,25 @@ function doPost(e) {
 }
 
 /* Opening the /exec URL in a browser is how people check they pasted the right
- * address, so it answers with something readable rather than an error. */
+ * address, so it answers with something readable rather than an error.
+ *
+ * It also reaches the spreadsheet, which is the one thing worth proving from a
+ * browser: the narrow scope this script asks for only covers the sheet it is
+ * bound to, and whether that binding survives into a web request is exactly
+ * what a person setting this up cannot tell by reading. It reports reachable
+ * or not, and never the sheet's name — this reply is not behind the secret. */
 function doGet() {
+  let board = 'unreachable';
+  try {
+    book().getName();
+    board = 'ok';
+  } catch (err) {
+    board = 'unreachable (' + String(err.message || err) + ')';
+  }
   return ContentService
     .createTextOutput('Carpool backend v' + BACKEND_VERSION +
-      ' — alive. The app talks to this address by POST.')
+      ' — alive. board: ' + board +
+      '\nThe app talks to this address by POST.')
     .setMimeType(ContentService.MimeType.TEXT);
 }
 
@@ -87,28 +112,20 @@ function json(obj) {
 // ---------- the spreadsheet ----------
 
 /* The store is a plain Google Sheet, so a parent who wants to see the raw
- * board — or fix something the app will not let them fix — can just open it. */
+ * board — or fix something the app will not let them fix — can just open it.
+ *
+ * getActive(), never openById(). The two look interchangeable and are not:
+ * openById needs the "all your spreadsheets" scope, getActive on a bound
+ * script needs only the file it is bound to. Keeping to getActive is the
+ * whole reason the permission screen asks for one file. */
 function book() {
-  const id = PROPS.getProperty('SHEET_ID');
-  if (id) {
-    try {
-      return SpreadsheetApp.openById(id);
-    } catch (err) {
-      throw new Error('SHEET_ID is set but that spreadsheet cannot be opened: ' + err);
-    }
+  const ss = SpreadsheetApp.getActive();
+  if (!ss) {
+    throw new Error(
+      'no bound spreadsheet — this script has to be created from inside the ' +
+      'sheet (Extensions > Apps Script), not as a standalone project');
   }
-  /* Under the lock and re-checked inside it: without that, two parents opening
-     the app for the first time in the same second each create a spreadsheet,
-     and one of the two boards then quietly disappears. */
-  return withLock(function () {
-    const again = PROPS.getProperty('SHEET_ID');
-    if (again) return SpreadsheetApp.openById(again);
-
-    const created = SpreadsheetApp.create(
-      'Carpool — ' + (PROPS.getProperty('GROUP_NAME') || 'הסעות'));
-    PROPS.setProperty('SHEET_ID', created.getId());
-    return created;
-  });
+  return ss;
 }
 
 /* Everything is stored as text. A date left to Sheets' own type comes back
@@ -159,11 +176,11 @@ function writeRow(sh, cols, obj) {
  * out and everybody opens the app at once. Every write takes the lock, and
  * claim() re-reads inside it.
  *
- * Reentrant on purpose. A first write has to create the spreadsheet, which
- * wants the lock too, so the outer saveParent() and the inner book() would
- * otherwise sit waiting for each other for twenty seconds and then fail. The
- * depth counter is safe because an Apps Script execution is single-threaded:
- * concurrency is between executions, and those do not share this variable. */
+ * Reentrant, so that a helper taking the lock inside another one that already
+ * holds it waits for nothing instead of deadlocking against itself for twenty
+ * seconds. The depth counter is safe because an Apps Script execution is
+ * single-threaded: concurrency is between executions, and separate executions
+ * do not share this variable. */
 let lockDepth = 0;
 
 function withLock(fn) {
@@ -409,67 +426,12 @@ function setRider(id, leg, parentId, riding) {
   });
 }
 
-
-// ---------- optional: the nightly nudge ----------
-
-/* A carpool fails quietly: nobody claimed tomorrow morning and nobody noticed.
- * Run installReminder() once from the editor and this goes out every evening
- * to every parent who has an address in the Parents sheet — but only when
- * there is actually something unclaimed, so it stays worth opening.
- *
- * Entirely optional. The app works without it. */
-const REMINDER_HOUR = 20;
-
-function installReminder() {
-  ScriptApp.getProjectTriggers()
-    .filter(t => t.getHandlerFunction() === 'dailyReminder')
-    .forEach(t => ScriptApp.deleteTrigger(t));
-
-  ScriptApp.newTrigger('dailyReminder')
-    .timeBased().atHour(REMINDER_HOUR).everyDays(1).inTimezone(TZ).create();
-
-  return 'Reminder installed for about ' + REMINDER_HOUR + ':00 daily.';
-}
-
-function removeReminder() {
-  ScriptApp.getProjectTriggers()
-    .filter(t => t.getHandlerFunction() === 'dailyReminder')
-    .forEach(t => ScriptApp.deleteTrigger(t));
-  return 'Reminder removed.';
-}
-
-function dailyReminder() {
-  const tomorrow = shiftDays(today(), 1);
-  const st = state();
-  const due = st.events.filter(e => e.date === tomorrow);
-  if (!due.length) return;
-
-  const open = [];
-  due.forEach(function (e) {
-    if (!e.toDriver) open.push(e.title + ' — הלוך' + (e.time ? ' ' + e.time : ''));
-    if (e.backTime && !e.backDriver) open.push(e.title + ' — חזור ' + e.backTime);
-  });
-  if (!open.length) return;
-
-  const to = readAll(sheet('Parents', PARENT_COLS), PARENT_COLS)
-    .map(p => p.email).filter(a => a && a.indexOf('@') > 0);
-  if (!to.length) return;
-
-  const group = PROPS.getProperty('GROUP_NAME') || 'הסעות';
-  MailApp.sendEmail({
-    bcc: to.join(','),
-    subject: group + ': אין נהג למחר',
-    body: 'נסיעות מחר שעדיין אין להן נהג:\n\n' + open.join('\n') +
-          '\n\nפתחו את האפליקציה כדי לשבץ את עצמכם.'
-  });
-}
-
-
 // ---------- run this from the editor before deploying ----------
 
-/* Prints what is configured and proves the sheet can be reached, so the two
- * things that actually go wrong at setup time fail here rather than on a
- * parent's phone. */
+/* Prints what is configured and proves the sheet can be reached, so the things
+ * that actually go wrong at setup time fail here rather than on a parent's
+ * phone. Touches nothing but the bound spreadsheet and the script's own
+ * properties, which is why running it asks for one permission. */
 function testSetup() {
   const out = [];
   const secret = PROPS.getProperty('SHARED_SECRET');
@@ -480,18 +442,18 @@ function testSetup() {
 
   try {
     const ss = book();
-    out.push('Spreadsheet    ' + ss.getName());
+    out.push('Spreadsheet    ' + ss.getName() + '  (bound — good)');
     out.push('               ' + ss.getUrl());
     const st = state();
     out.push('Parents        ' + st.parents.length);
     out.push('Events ahead   ' + st.events.length);
   } catch (err) {
     out.push('Spreadsheet    FAILED — ' + err);
+    out.push('               If this says "no bound spreadsheet", the script was');
+    out.push('               made standalone. Start again from the sheet itself:');
+    out.push('               Extensions > Apps Script.');
   }
 
-  const reminder = ScriptApp.getProjectTriggers()
-    .filter(t => t.getHandlerFunction() === 'dailyReminder').length;
-  out.push('Nightly nudge  ' + (reminder ? 'installed' : 'off (run installReminder to turn on)'));
   out.push('Backend        v' + BACKEND_VERSION);
 
   const text = out.join('\n');

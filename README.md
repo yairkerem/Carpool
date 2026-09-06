@@ -41,6 +41,18 @@ The Sheet is deliberately plain — two tabs, `Events` and `Parents` — so anyo
 who can open it can read the board or fix something the app will not let them
 fix.
 
+The script is **bound to that spreadsheet**, and [`appsscript.json`](appsscript.json)
+pins its scope to `spreadsheets.currentonly`. So setting it up asks the owner
+for access to one file, not to every spreadsheet in their account — which is
+what a standalone script finding its sheet by ID would have to request. The
+code only ever reaches the board through `SpreadsheetApp.getActive()`; an
+`openById` anywhere would quietly widen that permission back out.
+
+The nightly "nobody has claimed tomorrow" reminder needs two further
+permissions — send mail as you, run while you are away — so it is a separate
+optional file, [`carpool-reminder.gs`](carpool-reminder.gs), and those are
+asked for at the moment you opt in.
+
 ## Running a group
 
 See [SETUP.md](SETUP.md). One parent sets up the backend, once, and sends the

@@ -8,53 +8,120 @@ Roughly fifteen minutes, most of it waiting for Google's permission screens.
 
 - A Google account. That is all — there is no API key and nothing to pay for.
 
-The backend runs as *you*, and the spreadsheet it creates lives in *your*
-Drive. Every other parent reaches it only through the app.
+The board is a spreadsheet in your Drive, and the script that serves it runs as
+you. Every other parent reaches it only through the app.
 
-## 1. Create the script
+## A note on the one permission it asks for
 
-1. Go to [script.google.com](https://script.google.com/) → **New project**
-2. Delete the `myFunction` stub
-3. Paste the whole of [`carpool-backend.gs`](carpool-backend.gs), and save
+The script is created **from inside the spreadsheet**, not as a standalone
+project, and its manifest pins the scope to `spreadsheets.currentonly`. That
+combination is what makes Google ask for access to *that one spreadsheet*
+rather than to every spreadsheet in your account — which is what a standalone
+script would have to ask for, because it would need to find its sheet by ID.
 
-## 2. Set the two properties
+So step 1 below is not a matter of taste. Build it the other way round and the
+permission screen gets much wider.
 
-**Project Settings** → **Script properties**.
+You will still see *"Google hasn't verified this app"*. Every script anyone
+writes for themselves shows that; verification is a review process for software
+distributed publicly. The script is the text you pasted.
+
+The nightly reminder needs two further permissions — sending mail as you, and
+running while you are away — so it is a separate file that you add only if you
+want it. See the last section.
+
+## 1. Create the spreadsheet, then the script inside it
+
+1. Go to [sheets.new](https://sheets.new) — a blank spreadsheet
+2. Name it something you will recognise in Drive, e.g. `Carpool — כדורגל כיתה ג׳`
+3. **Extensions** → **Apps Script**. A script editor opens, already tied to
+   this spreadsheet
+4. Rename the script project from *Untitled project* to `Carpool`
+
+## 2. Paste the code
+
+The editor opens on `Code.gs` with a `myFunction` stub. Select all of it and
+replace it with the whole of [`carpool-backend.gs`](carpool-backend.gs). Save.
+
+## 3. Pin the permissions in the manifest
+
+This is the step that narrows the scope, and it is easy to skip.
+
+1. Left sidebar → **⚙ Project Settings**
+2. Tick **Show "appsscript.json" manifest file in editor**
+3. Back to **Editor** → open `appsscript.json`
+4. Replace it with [`appsscript.json`](appsscript.json) from this repository,
+   and save
+
+If your group is not in Israel, change `timeZone` to match.
+
+## 4. Set the two properties
+
+Still in **⚙ Project Settings**, scroll to **Script Properties** → **Add script
+property**.
 
 | Property | Value |
 |---|---|
-| `SHARED_SECRET` | any random string — it is the only thing standing between your carpool and the open internet, so make it long. This is what you send the other parents |
+| `SHARED_SECRET` | any long random string — it is the only thing standing between your carpool and the open internet. This is what you send the other parents |
 | `GROUP_NAME` | optional; shown in the app header, e.g. `כדורגל כיתה ג׳` |
 
-`SHEET_ID` is written for you the first time the script runs. Leave it alone
-unless you want the board in a spreadsheet you already have, in which case put
-its ID there and the script will use that one.
+**Save script properties**.
 
-## 3. Check it before deploying
+## 5. Check it before deploying
 
-Run `testSetup` from the editor. The first time, Google will ask you to grant
-permission to your spreadsheets and to send mail — that second one is for the
-optional nightly reminder in step 6, and refusing it does not stop the app
-working.
+Back to **Editor**. In the toolbar, change the function dropdown to
+**`testSetup`** and press **▶ Run**.
 
-It prints which properties are set, creates the spreadsheet, and gives you its
-URL. Anything reported as `MISSING — required` will stop the app working.
+The first run asks for authorisation:
 
-## 4. Deploy
+1. **Review permissions** → choose your account
+2. *"Google hasn't verified this app"* → **Advanced** → **Go to Carpool
+   (unsafe)**
+3. One permission, naming this spreadsheet → **Allow**
 
-**Deploy** → **New deployment** → type **Web app**.
+If you are offered access to *all* your spreadsheets, stop: either the
+manifest in step 3 did not save, or the script is standalone rather than bound.
 
-- **Execute as:** Me
-- **Who has access:** **Anyone**
+The **Execution log** should then read something like:
 
-That second one sounds alarming and is not: "anyone" may send a request, but
-every request is rejected unless it carries your `SHARED_SECRET`. The app needs
-this because the other parents are not signed in to your Google account.
+```
+SHARED_SECRET  set (40 chars)
+GROUP_NAME     כדורגל כיתה ג׳
+Spreadsheet    Carpool — כדורגל כיתה ג׳  (bound — good)
+               https://docs.google.com/spreadsheets/d/...
+Parents        0
+Events ahead   0
+Backend        v1
+```
 
-Copy the **Web app URL**. It ends in `/exec` — that exact URL is what the app
-wants. The `/dev` one only ever answers to you, and the app will refuse it.
+Two tabs, `Events` and `Parents`, have now appeared in the spreadsheet.
 
-## 5. Bring the parents in
+## 6. Deploy
+
+**Deploy** → **New deployment** → the **⚙** next to *Select type* → **Web app**.
+
+- **Execute as** — **Me**
+- **Who has access** — **Anyone** (not *Anyone with a Google account*)
+
+Both should already be set, because the manifest sets them.
+
+**Deploy**, and copy the **Web app URL**. It ends in `/exec` — that exact URL is
+what the app wants. The `/dev` one only ever answers to you, and the app will
+refuse it.
+
+## 7. Prove it from a browser
+
+Paste the `/exec` URL into a browser tab. You want:
+
+```
+Carpool backend v1 — alive. board: ok
+```
+
+`board: ok` is the part that matters — it means the deployed web app really can
+reach its spreadsheet under the narrow permission. Anything else, and the app
+will not work; the message says why.
+
+## 8. Bring the parents in
 
 Send each parent two things: the address of the app, and the `SHARED_SECRET`.
 
@@ -74,25 +141,41 @@ Installing it:
 - **iPhone** — Safari's share button → **Add to Home Screen**. It has to be
   Safari; Chrome on iOS cannot install a PWA.
 
-Either way it opens without browser chrome and shows the last loaded board
-even with no signal.
+Either way it opens without browser chrome and shows the last loaded board even
+with no signal.
 
-## 6. Optional: the nightly nudge
+## Optional: the nightly nudge
 
 A carpool fails quietly — nobody claimed tomorrow morning and nobody noticed.
 
-Add an `email` to each parent's row in the `Parents` tab of the spreadsheet,
-then run `installReminder` once from the editor. Every evening around 20:00, if
-tomorrow has a leg with no driver, everyone gets one mail saying which. If every
-leg is covered, nothing is sent — which is what keeps it worth opening.
+This costs two more permissions, which is why it is not in the main file. Turn
+it on only if you want it:
 
-`removeReminder` turns it off again.
+1. In the editor, **+** next to *Files* → **Script**, named `reminder`. Paste
+   in [`carpool-reminder.gs`](carpool-reminder.gs)
+2. Add these two lines to `oauthScopes` in `appsscript.json` — the manifest
+   pins the list, so a scope not named there is never granted:
+   ```
+   "https://www.googleapis.com/auth/script.send_mail",
+   "https://www.googleapis.com/auth/script.scriptapp"
+   ```
+3. Put an address in the `email` column of the `Parents` tab for anyone who
+   should get the mail. Parents without one are skipped
+4. Run **`installReminder`** once, and accept the two new permissions
+5. Run **`testReminder`** to send one immediately and check it looks right
+
+Every evening around 20:00, if tomorrow has a leg with no driver, everyone gets
+one mail saying which. If every leg is covered, nothing is sent — which is what
+keeps it worth opening.
+
+`removeReminder` turns it off. Deleting the file does **not**: the trigger
+outlives it, so run `removeReminder` first.
 
 ## Updates
 
 **The app updates itself.** Everyone loads the same page, so a change reaches
-every parent. On a phone it arrives through the service worker: a bar appears
-at the top of the board offering **עדכון**, or settings → **בדיקת עדכון**.
+every parent. On a phone it arrives through the service worker: a bar appears at
+the top of the board offering **עדכון**, or settings → **בדיקת עדכון**.
 
 **The backend does not.** When `carpool-backend.gs` changes here, re-paste it,
 then **Deploy** → **Manage deployments** → edit the existing one → **New
@@ -106,9 +189,11 @@ which half is behind.
 
 | What you see | Usually means |
 |---|---|
-| `אין תקשורת עם השרת` | the URL is wrong, the deployment is not set to *Anyone*, or the script is failing to load — open the `/exec` URL in a browser, and it should answer `Carpool backend v1 — alive` |
+| Google offers access to *all* your spreadsheets | the manifest edit in step 3 did not save, or the script is standalone. It has to be created from **Extensions → Apps Script** inside the sheet |
+| `board: unreachable (no bound spreadsheet…)` | same thing — the script is not bound to a spreadsheet |
+| A runtime error naming a scope | something in the code needs a permission the manifest does not list. Add that scope to `oauthScopes` and run again |
+| `אין תקשורת עם השרת` | the URL is wrong, the deployment is not set to *Anyone*, or the script is failing to load — open the `/exec` URL in a browser and read what it says |
 | `הסיסמה המשותפת שגויה` | `SHARED_SECRET` does not match what the parent typed |
 | `תשובה לא תקינה מהשרת` | the URL points at something that is not this script |
 | `הכתובת צריכה להיות של Web App` | the `/dev` or `/edit` URL was pasted instead of `/exec` |
-| A parent shows up as `הורה` | their phone has a cached board from before they registered; pulling to refresh fixes it |
-| Two spreadsheets appeared | `SHEET_ID` was cleared at some point. Put the ID of the one you want back into Script properties |
+| A parent shows up as `הורה` | their phone has a cached board from before that parent registered; refreshing fixes it |
