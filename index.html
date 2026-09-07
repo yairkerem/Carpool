@@ -285,6 +285,15 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
   border:1px solid var(--line);background:transparent;color:var(--danger);
 }
 .kick:active{background:var(--line)}
+/* Each candidate is a button, not a label: the whole row is the target, since
+   this is tapped once by somebody who has just been told something confusing. */
+.claimbtn{
+  width:100%;cursor:pointer;text-align:start;
+  padding:9px 11px;border-radius:11px;
+  border:1px solid var(--line);background:var(--card);
+}
+.claimbtn:active{background:var(--brand-soft);border-color:var(--brand)}
+.claimbtn .hint{margin:0;margin-inline-start:auto;direction:ltr}
 .rowbtns{display:flex;gap:8px;flex-wrap:wrap}
 .rowbtns button{
   border:1px solid var(--line);background:transparent;color:var(--ink);
@@ -341,6 +350,17 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
   </div>
 
   <div id="setup-msg" class="msg" hidden></div>
+
+  <!-- Shown only when the group already has somebody by this name. Two
+       parents really can share one, so the app asks instead of deciding. -->
+  <div class="sect" id="claim-box" hidden>
+    <h3 id="claim-head"></h3>
+    <p class="hint" id="claim-lede"></p>
+    <div id="claim-list" class="people"></div>
+    <div class="actions" style="margin-bottom:0">
+      <button type="button" id="b-claim-new" class="btn ghost">לא, אני הורה אחר/ת</button>
+    </div>
+  </div>
 
   <div class="actions">
     <button id="b-connect" class="btn">
@@ -468,7 +488,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 12;
+const APP_VERSION = 13;
 
 const HE_DAYS   = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 
@@ -1500,8 +1520,83 @@ function openSetup(message){
     (state.backendVersion ? ' · backend v' + state.backendVersion : '') +
     (state.me ? '\n' + state.me.id + (iAmAdmin() ? ' · admin' : '') : '');
 
+  $('claim-box').hidden = true;      // a stale chooser must not outlive its question
   say('setup-msg', message || '', message ? 'err' : '');
   show('setup');
+}
+
+/* The registration step, on its own so it can be sent again with an answer.
+ *
+ * `extra` is empty the first time. If the group already has somebody by this
+ * name the backend refuses rather than guessing, and the parent's answer comes
+ * back through here as either {claim:<id>} — that member is me, this is my
+ * other device — or {force:true} — different person, same name. */
+async function registerMe(extra){
+  $('claim-box').hidden = true;
+
+  const name = $('i-name').value.trim();
+  const parent = Object.assign({
+    id: state.me ? state.me.id : '',
+    name: name,
+    color: pickedColor,
+    phone: $('i-phone').value.trim()
+  }, extra);
+
+  busy('b-connect', 'connect-spin', 'connect-label', true, 'רושם…');
+  try {
+    const me = await api({ action:'me', parent: parent }, 25000, state.backend);
+
+    if (!me.ok){
+      if (me.error === 'name-taken'){
+        askClaim(me.candidates || [], name);
+        return;
+      }
+      say('setup-msg', me.error === 'removed'
+        ? 'ההרשמה הזו הוסרה מהקבוצה.'
+        : ('לא הצלחנו לרשום אתכם: ' + (me.error || 'שגיאה')), 'err');
+      return;
+    }
+
+    state.me = me.parent;
+    localStorage.setItem(LS.backend, state.backend);
+    localStorage.setItem(LS.secret, state.secret);
+    localStorage.setItem(LS.me, JSON.stringify(state.me));
+
+    say('setup-msg', '');
+    show('list');
+    render();
+    await refresh();
+  } finally {
+    busy('b-connect', 'connect-spin', 'connect-label', false,
+      state.setupReturn ? 'שמירה' : 'התחברות');
+  }
+}
+
+/* One parent with a phone and a laptop used to become two members, because a
+ * device with no stored id simply registered a new one. Now the group's own
+ * list is offered back: pick yourself and this device carries on as you,
+ * keeping your rides, your colour and your admin flag. */
+function askClaim(candidates, name){
+  $('claim-head').textContent = 'כבר יש "' + name + '" בקבוצה';
+  $('claim-lede').textContent = candidates.length > 1
+    ? 'אם אחד מהם זה אתם, בחרו בו והמכשיר הזה ימשיך מאותו חשבון.'
+    : 'אם זה אתם, בחרו בשם והמכשיר הזה ימשיך מאותו חשבון — כך לא נוצר חבר כפול בקבוצה.';
+
+  const list = $('claim-list');
+  list.textContent = '';
+  for (const c of candidates){
+    const b = el('button', 'person claimbtn');
+    b.type = 'button';
+    b.appendChild(personChip(c, true));
+    if (c.admin) b.appendChild(el('span', 'badge', 'מנהל/ת'));
+    if (c.phone) b.appendChild(el('span', 'hint', c.phone));
+    b.onclick = () => registerMe({ claim: c.id });
+    list.appendChild(b);
+  }
+
+  say('setup-msg', '');
+  $('claim-box').hidden = false;
+  $('claim-box').scrollIntoView({ block:'center' });
 }
 
 async function connect(){
@@ -1538,24 +1633,7 @@ async function connect(){
     state.backendVersion = p.version;
     state.group = p.group || '';
 
-    const me = await api({
-      action:'me',
-      parent:{ id: state.me ? state.me.id : '', name: name, color: pickedColor, phone: phone }
-    }, 25000, backend);
-    if (!me.ok){
-      state.secret = saved;
-      say('setup-msg', 'לא הצלחנו לרשום אתכם: ' + (me.error || 'שגיאה'), 'err');
-      return;
-    }
-
-    state.me = me.parent;
-    localStorage.setItem(LS.backend, backend);
-    localStorage.setItem(LS.secret, secret);
-    localStorage.setItem(LS.me, JSON.stringify(state.me));
-
-    show('list');
-    render();
-    await refresh();
+    await registerMe({});
   } catch (err) {
     say('setup-msg', netMessage(err), 'err');
   } finally {
@@ -1706,6 +1784,7 @@ $('b-connect').onclick = connect;
 $('b-setup-cancel').onclick = () => { show(state.setupReturn || 'setup'); render(); };
 $('b-forget').onclick = forget;
 $('b-check-update').onclick = checkUpdate;
+$('b-claim-new').onclick = () => registerMe({ force: true });
 
 $('b-settings').onclick = () => openSetup('');
 $('b-refresh').onclick = () => refresh();

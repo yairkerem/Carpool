@@ -25,7 +25,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 3;
+const BACKEND_VERSION = 4;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -341,6 +341,11 @@ function ensureAdmin() {
  * id that comes back is what their phone stores and sends from then on. Names
  * are not unique and are not treated as such — two Michals in one class is
  * normal, and the colour is there to tell them apart. */
+function sameName(a, b) {
+  return String(a || '').trim().replace(/\s+/g, ' ') ===
+         String(b || '').trim().replace(/\s+/g, ' ');
+}
+
 function saveParent(parent) {
   if (!parent || !String(parent.name || '').trim()) {
     return { ok: false, error: 'name required' };
@@ -348,7 +353,35 @@ function saveParent(parent) {
   return withLock(function () {
     const sh = sheet('Parents', PARENT_COLS);
     const all = readAll(sh, PARENT_COLS);
-    const existing = parent.id && all.filter(p => p.id === parent.id)[0];
+    let existing = parent.id && all.filter(p => p.id === parent.id)[0];
+
+    /* A second device taking over an identity that already exists, rather than
+     * adding itself as another person. The app only sends this after the
+     * parent has picked their own name off a list. */
+    if (!existing && parent.claim) {
+      existing = all.filter(p => p.id === parent.claim && p.removed !== '1')[0];
+      if (!existing) return { ok: false, error: 'not found' };
+    }
+
+    /* A device with no id, registering under a name the group already has.
+     * Answering this by quietly reusing the existing row would be wrong — two
+     * Michals in one class is ordinary, and merging them would let one of them
+     * cancel the other's rides. Answering it by making a second row is what
+     * used to happen, and is how one parent with a phone and a laptop became
+     * two members. So neither: hand the choice back and let them say. */
+    if (!existing && !parent.force) {
+      const same = all.filter(p => p.removed !== '1' && sameName(p.name, parent.name));
+      if (same.length) {
+        return {
+          ok: false,
+          error: 'name-taken',
+          candidates: same.map(p => ({
+            id: p.id, name: p.name, color: p.color, phone: p.phone,
+            admin: p.admin === '1'
+          }))
+        };
+      }
+    }
 
     if (existing && existing.removed === '1') return { ok: false, error: 'removed' };
 
