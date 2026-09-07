@@ -372,6 +372,15 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
      thing the gear opens later — which keeps "where do I change my name?" from
      having two answers. -->
 <section id="s-setup" class="screen">
+  <!-- Once there is a board to go back to, this screen gets the same header as
+       the event editor: a back arrow at the top, always in reach. It used to
+       be a "ביטול" at the very bottom, which meant scrolling past the whole of
+       settings to leave — and which promised to undo something it never did. -->
+  <header class="bar" id="setup-bar" hidden>
+    <button id="b-setup-back" class="iconbtn" aria-label="חזרה ללוח">→</button>
+    <div class="bar-title"><b>הגדרות</b></div>
+  </header>
+
   <h1 id="setup-h">Carpool</h1>
   <p class="lede" id="setup-lede">לוח נסיעות משותף להורים. לכל אירוע יש נהג להלוך ונהג לחזור, וכל אחד משבץ את עצמו.</p>
 
@@ -431,7 +440,6 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
       <span id="connect-spin" class="spin" hidden></span>
       <span id="connect-label">התחברות</span>
     </button>
-    <button id="b-setup-cancel" class="btn ghost" hidden>ביטול</button>
   </div>
 
   <div class="sect" id="people-sect" hidden>
@@ -552,7 +560,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 20;
+const APP_VERSION = 21;
 
 const HE_DAYS   = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 
@@ -1684,9 +1692,12 @@ function openSetup(message){
   const connected = !!(state.backend && state.secret && state.me);
   state.setupReturn = connected ? 'list' : null;
 
-  $('setup-h').textContent = connected ? 'הגדרות' : 'Carpool';
+  /* The bar and the big title name the same screen, so only one of them shows:
+     the bar, with its back arrow, once there is a board to go back to — the
+     title and its explanation on a device that has never connected. */
+  $('setup-bar').hidden = !connected;
+  $('setup-h').hidden = connected;
   $('setup-lede').hidden = connected;
-  $('b-setup-cancel').hidden = !connected;
   $('connect-label').textContent = connected ? 'שמירה' : 'התחברות';
 
   $('i-backend').value = state.backend;
@@ -2052,7 +2063,7 @@ async function checkUpdate(){
 
 /* ---- wiring --------------------------------------------------- */
 $('b-connect').onclick = connect;
-$('b-setup-cancel').onclick = () => { show(state.setupReturn || 'setup'); render(); };
+$('b-setup-back').onclick = () => { show(state.setupReturn || 'setup'); render(); };
 $('b-forget').onclick = forget;
 $('b-check-update').onclick = checkUpdate;
 $('b-claim-new').onclick = () => registerMe({ force: true });
