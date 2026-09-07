@@ -65,6 +65,17 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 .screen{display:none;max-width:640px;margin:0 auto;padding:0 14px 96px}
 .screen.active{display:block}
 
+/* The board is the one screen that should fill the phone rather than sit in
+   the top third of it. It becomes a column the height of the viewport: bar,
+   banners, then the board taking everything left over. dvh because on a phone
+   vh is the address bar's idea of the height, not the one you can see. */
+#s-list.active{
+  display:flex; flex-direction:column;
+  height:100vh; height:100dvh;
+  padding-bottom:0;
+}
+#list{flex:1;min-height:0;display:flex}
+
 /* ---------- top bar ---------- */
 .bar{
   position:sticky; top:0; z-index:20;
@@ -99,11 +110,16 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
    at the right on its own, and the horizontal scroll starts there too — the
    soonest event under the reader's thumb, later ones off to the left. */
 .board{
-  display:flex; align-items:flex-start; gap:12px;
-  overflow-x:auto; overflow-y:visible;
+  /* stretch, not flex-start: the columns take the board's full height instead
+     of shrinking to their contents and leaving the screen half empty. */
+  display:flex; align-items:stretch; gap:12px;
+  flex:1; min-height:0;
+  overflow-x:auto; overflow-y:hidden;
   /* Bleeds through the screen's side padding, so the next column is cut off
-     by the edge of the phone rather than by an invisible margin. */
-  margin-inline:-14px; padding:2px 14px 16px;
+     by the edge of the phone rather than by an invisible margin. The bottom
+     clears the floating button, which would otherwise sit on top of the last
+     leg's own button. */
+  margin-inline:-14px; padding:2px 14px calc(78px + env(safe-area-inset-bottom));
   scroll-snap-type:x proximity;
   /* Without this the snap aligns a column to the padding box and tucks the
      first one 14px under the screen edge — the bleed eats its own margin. */
@@ -117,8 +133,21 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
   flex:0 0 clamp(230px, 76vw, 290px);
   scroll-snap-align:start;
   background:var(--card); border-radius:var(--r); box-shadow:var(--shadow);
-  overflow:hidden;
+  /* A column is now as tall as the board, so its own contents lay out down it
+     — and a long note or a carful of names scrolls inside the card rather
+     than stretching it past the screen. */
+  display:flex; flex-direction:column;
+  overflow-x:hidden; overflow-y:auto;
 }
+.col-head{flex:none}
+/* The two legs share whatever height is left, evenly, so each gets a real
+   panel instead of a strip. */
+.leg{flex:1 1 0;display:flex;flex-direction:column;min-height:0}
+/* The slack goes to the names, centred, rather than opening a hole between
+   them and the button. Head at the top, who is driving in the middle of the
+   panel, the thing you tap at the foot of it — and the same shape on every
+   card, which is what makes a board readable at a glance. */
+.leg .drivers{flex:1 1 auto;justify-content:center}
 .col-head{display:flex;align-items:flex-start;gap:6px;padding:12px 12px 10px}
 .col-head .txt{flex:1;min-width:0}
 .col-head h2{font-size:16px;overflow-wrap:anywhere}
@@ -182,6 +211,10 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 .leg.open .drivers{
   width:100%;padding:9px 11px;border-radius:10px;
   background:var(--warn-soft);border:1px dashed var(--warn);
+  /* Sized to its own words and floated to the middle, rather than stretched
+     down the whole panel — a full-height amber block shouts far louder than
+     "this one still needs a driver" deserves, and drowns the card next to it. */
+  flex:0 0 auto;margin-block:auto;
 }
 .call{text-decoration:none;font-size:15px;line-height:1;padding:2px}
 .chip{
@@ -218,7 +251,14 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 .join.on{border-style:solid;border-color:var(--leg,var(--brand));color:var(--leg,var(--brand));font-weight:600}
 
 /* ---------- empty / fab ---------- */
-.empty{text-align:center;color:var(--muted);padding:56px 20px}
+/* Sits in the middle of the tall empty board rather than clinging to the top
+   of it, now that the board is the height of the screen. */
+.empty{
+  flex:1;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  text-align:center;color:var(--muted);padding:20px;
+}
+.empty p{margin:2px 0}
 .empty .big{font-size:40px;margin-bottom:10px}
 .fab{
   position:fixed;inset-block-end:calc(18px + env(safe-area-inset-bottom));
@@ -512,7 +552,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 19;
+const APP_VERSION = 20;
 
 const HE_DAYS   = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 
