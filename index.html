@@ -214,6 +214,13 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
   background:var(--card);
 }
 .field input:focus,.field textarea:focus{outline:2px solid var(--brand);outline-offset:-1px;border-color:transparent}
+/* dir="auto" decides direction from the field's *value*, and an empty field
+   has none — so it falls back to LTR and throws a Hebrew placeholder over to
+   the left, in an app that is otherwise entirely right to left. While the
+   placeholder is what's showing there is no value to respect, so force RTL;
+   the moment anything is typed this stops matching and dir="auto" takes over
+   again, which is what keeps an English event name aligned properly. */
+.field [dir="auto"]:placeholder-shown{direction:rtl}
 .field textarea{min-height:76px;resize:vertical}
 .two{display:flex;gap:10px}
 .two>*{flex:1;min-width:0}
@@ -335,12 +342,18 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     <div id="people-list" class="people"></div>
   </div>
 
-  <div class="sect" id="about-sect" hidden>
+  <!-- Always on screen, connected or not. A parent stuck on this page with an
+       old build is exactly who needs the update button, and hiding it until
+       they have connected puts it behind the problem it solves. -->
+  <div class="sect" id="about-sect">
     <h3>גרסה</h3>
     <p class="hint mono" id="ver-line"></p>
     <div class="rowbtns" style="margin-top:10px">
-      <button type="button" id="b-check-update">בדיקת עדכון</button>
-      <button type="button" id="b-forget">התנתקות מהקבוצה</button>
+      <button type="button" id="b-check-update">
+        <span id="update-spin" class="spin" hidden></span>
+        <span id="update-label">עדכון האפליקציה</span>
+      </button>
+      <button type="button" id="b-forget" hidden>התנתקות מהקבוצה</button>
     </div>
   </div>
 </section>
@@ -438,7 +451,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 8;
+const APP_VERSION = 9;
 
 const HE_DAYS   = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 
@@ -1396,7 +1409,9 @@ function openSetup(message){
   people.textContent = '';
   for (const p of state.parents) people.appendChild(personChip(p, true));
 
-  $('about-sect').hidden = !connected;
+  /* The version block stays; only leaving a group you are not in makes no
+     sense. */
+  $('b-forget').hidden = !connected;
   $('ver-line').textContent = 'app v' + APP_VERSION +
     (state.backendVersion ? ' · backend v' + state.backendVersion : '');
 
@@ -1518,16 +1533,44 @@ async function publishedVersion(){
   }
 }
 
+/* A worker that has just been fetched spends a moment installing before it
+ * becomes the waiting one. Without this the button would report "up to date"
+ * while the new build was mid-install, one second from ready. */
+function waitForWaiting(reg, ms){
+  return new Promise(resolve => {
+    if (reg.waiting) return resolve(reg.waiting);
+    const w = reg.installing;
+    if (!w) return resolve(null);
+
+    const done = setTimeout(() => resolve(reg.waiting), ms);
+    w.addEventListener('statechange', () => {
+      if (w.state === 'installed'){ clearTimeout(done); resolve(reg.waiting || w); }
+      else if (w.state === 'redundant'){ clearTimeout(done); resolve(null); }
+    });
+  });
+}
+
+/* One button that does the whole job. It used to only *check*, and then tell
+ * the parent to go back to the board and press something else — which is two
+ * screens and a sentence to explain, for a thing that should be one tap. */
 async function checkUpdate(){
   if (!swReg){ say('setup-msg', 'עדכונים אינם נתמכים בדפדפן הזה.', 'err'); return; }
-  say('setup-msg', 'בודק…', 'ok');
+
+  busy('b-check-update', 'update-spin', 'update-label', true, 'בודק…');
+  say('setup-msg', '');
   try {
     await swReg.update();
-    if (swReg.waiting){
-      offerUpdate();
-      say('setup-msg', 'נמצאה גרסה חדשה — חזרו ללוח ולחצו "עדכון".', 'ok');
+
+    const waiting = await waitForWaiting(swReg, 15000);
+    if (waiting){
+      busy('b-check-update', 'update-spin', 'update-label', true, 'מתקין…');
+      say('setup-msg', 'נמצאה גרסה חדשה. האפליקציה תיטען מחדש…', 'ok');
+      /* The reload happens on controllerchange, which fires once the new
+         worker takes over — so nothing more to do here. */
+      waiting.postMessage({ type: 'SKIP_WAITING' });
       return;
     }
+
     const live = await publishedVersion();
     if (live && live > APP_VERSION){
       say('setup-msg', 'קיימת גרסה ' + live + ', אבל הדפדפן עדיין מגיש את ' +
@@ -1537,6 +1580,12 @@ async function checkUpdate(){
     }
   } catch (e) {
     say('setup-msg', 'בדיקת העדכון נכשלה. בדקו את החיבור.', 'err');
+  } finally {
+    /* Skipped on the update path: that one is on its way to a reload, and
+       putting the label back would flash "up to date" on the way out. */
+    if (!(swReg && swReg.waiting)){
+      busy('b-check-update', 'update-spin', 'update-label', false, 'עדכון האפליקציה');
+    }
   }
 }
 
