@@ -27,6 +27,9 @@
   --to:#0f766e;   --to-soft:#d3f4ef;  --to-ink:#fff;
   --back:#6d28d9; --back-soft:#ece5fd; --back-ink:#fff;
   --warn:#b45309; --warn-soft:#fef3c7; --danger:#dc2626;
+  /* "This leg is sorted." Green earns its usual meaning here, and is far
+     enough from the amber that the two never read as the same state. */
+  --done:#15803d; --done-soft:#dcfce7;
   --shadow:0 1px 2px rgba(15,23,42,.06), 0 4px 12px rgba(15,23,42,.06);
   --r:14px;
 }
@@ -37,6 +40,7 @@
     --to:#2dd4bf;   --to-soft:#0e3b36;  --to-ink:#04241f;
     --back:#a78bfa; --back-soft:#2a2150; --back-ink:#1b1440;
     --warn:#fbbf24; --warn-soft:#3a2f10; --danger:#f87171;
+    --done:#4ade80; --done-soft:#11331f;
     --shadow:0 1px 2px rgba(0,0,0,.4), 0 6px 16px rgba(0,0,0,.35);
   }
 }
@@ -110,17 +114,24 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
    at the right on its own, and the horizontal scroll starts there too — the
    soonest event under the reader's thumb, later ones off to the left. */
 .board{
-  /* stretch, not flex-start: the columns take the board's full height instead
-     of shrinking to their contents and leaving the screen half empty. */
-  display:flex; align-items:stretch; gap:12px;
+  /* Columns take most of the board's height rather than all of it — full
+     height pushed the buttons right down to the thumb's limit, and the last
+     row of each card wanted to come up a little. */
+  display:flex; align-items:flex-start; gap:12px;
   flex:1; min-height:0;
   overflow-x:auto; overflow-y:hidden;
+  /* Snap properly rather than almost. `proximity` sometimes caught a flick and
+     sometimes let it run, and that inconsistency is what reads as unsmooth;
+     `mandatory` gives every swipe the same, deliberate landing. `contain`
+     stops a horizontal drag turning into the browser's back gesture halfway
+     through one. */
+  overscroll-behavior-inline:contain;
   /* Bleeds through the screen's side padding, so the next column is cut off
      by the edge of the phone rather than by an invisible margin. The bottom
      clears the floating button, which would otherwise sit on top of the last
      leg's own button. */
   margin-inline:-14px; padding:2px 14px calc(78px + env(safe-area-inset-bottom));
-  scroll-snap-type:x proximity;
+  scroll-snap-type:x mandatory;
   /* Without this the snap aligns a column to the padding box and tucks the
      first one 14px under the screen edge — the bleed eats its own margin. */
   scroll-padding-inline:14px;
@@ -138,6 +149,12 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
      than stretching it past the screen. */
   display:flex; flex-direction:column;
   overflow-x:hidden; overflow-y:auto;
+  /* Four fifths of the board, not all of it. */
+  height:80%;
+  /* Keeps each card's repainting to itself while the board is being dragged
+     across — the grey filter on a finished column is otherwise repainted
+     against everything beside it, which is felt as stutter. */
+  contain:layout paint style;
 }
 .col-head{flex:none}
 /* The two legs share whatever height is left, evenly, so each gets a real
@@ -208,6 +225,17 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 /* The unclaimed leg has to carry across a board being scanned at arm's
    length, but tinting the whole block would drown the leg's own colour —
    so the marker sits around the empty space where a name should be. */
+/* Enough drivers on this leg. The whole panel greens over, so a board can be
+   read for what still needs doing rather than for what is already fine — the
+   amber ones want you, the green ones do not. The head strip keeps its own
+   colour, because which leg it is still matters more than whether it is full. */
+.leg.full{background:var(--done-soft)}
+.leg.full .leg-t{color:var(--done)}
+.leg-done{
+  margin-inline-start:6px;font-size:11px;font-weight:700;
+  padding:1px 7px;border-radius:999px;
+  background:var(--done);color:var(--card);
+}
 .leg.open .drivers{
   width:100%;padding:9px 11px;border-radius:10px;
   background:var(--warn-soft);border:1px dashed var(--warn);
@@ -560,7 +588,14 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 21;
+const APP_VERSION = 22;
+
+/* How many drivers a leg wants before it counts as sorted. Two, because one
+ * car rarely holds a squad and a spare driver is what stops a single cancelled
+ * lift becoming a problem. Nobody is prevented from joining a full leg — this
+ * only changes how it is coloured, so that a board can be read for what still
+ * needs somebody. */
+const DRIVERS_WANTED = 2;
 
 const HE_DAYS   = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 
@@ -1046,14 +1081,19 @@ function legBlock(ev, leg, past){
   const iDrive = !!(state.me && drivers.indexOf(state.me.id) >= 0);
 
   /* A finished leg with no driver is not a problem to be solved, so it does
-     not get the amber ring that means "somebody deal with this". */
+     not get the amber ring that means "somebody deal with this" — nor the
+     green that means "no need". */
+  const full = !past && drivers.length >= DRIVERS_WANTED;
   const box = el('section', 'leg ' + (isTo ? 'to' : 'back') +
-    (drivers.length || past ? '' : ' open'));
+    (drivers.length || past ? '' : ' open') + (full ? ' full' : ''));
 
   const head = el('div', 'leg-head');
   head.appendChild(el('span', 'leg-ico', isTo ? '🚗' : '🏠'));
   head.appendChild(el('b', null, isTo ? 'הלוך' : 'חזור'));
   if (time) head.appendChild(el('span', 'leg-t', time));
+  /* Said as well as coloured, for the same reason "הסתיים" is: green alone is
+     a guess, and one parent in ten cannot tell it from the amber. */
+  if (full) head.appendChild(el('span', 'leg-done', '✓ מסודר'));
   box.appendChild(head);
 
   /* Drivers stacked, one to a line. Several parents on a leg is normal now,
