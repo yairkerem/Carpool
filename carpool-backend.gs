@@ -25,7 +25,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 4;
+const BACKEND_VERSION = 5;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -46,10 +46,15 @@ const EVENT_COLS = [
 const PARENT_COLS = ['id', 'name', 'color', 'phone', 'email', 'updatedAt',
                      'admin', 'removed'];
 
-/* An event is only interesting until the day it happens. Rows older than this
- * are still in the sheet — nothing is ever deleted behind anyone's back — they
- * are just not sent to the app, which keeps the payload small on a phone. */
-const KEEP_PAST_DAYS = 2;
+/* How long a finished event stays on the board. It is still shown for a week
+ * after the fact — greyed out, and mostly so it can be copied into next week's
+ * — and then it stops being sent.
+ *
+ * Stops being *sent*, not deleted: the row stays in the sheet. Who drove whom
+ * is the one piece of history this thing accumulates, and throwing it away on
+ * a timer to save a few kilobytes would be a poor trade. Clearing old rows, if
+ * anyone ever wants to, is a job for whoever owns the spreadsheet. */
+const KEEP_PAST_DAYS = 7;
 
 /* Two legs, and the app and the sheet must agree on their names. */
 const LEGS = { to: 'toDriver', back: 'backDriver' };

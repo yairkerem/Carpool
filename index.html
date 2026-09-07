@@ -124,7 +124,18 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 .col-head h2{font-size:16px;overflow-wrap:anywhere}
 .col-acts{display:flex;flex:none;margin:-4px -6px 0 0}
 .col-acts .iconbtn{width:30px;height:30px;font-size:15px}
-.col-when{font-size:12px;font-weight:700;color:var(--muted);margin-top:3px}
+.col-when{font-size:12px;font-weight:700;color:var(--muted);margin-top:3px;
+          display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.col-when .done{
+  font-weight:700;font-size:11px;padding:1px 7px;border-radius:999px;
+  background:var(--line);color:var(--muted);
+}
+/* Grey, not hidden: a finished event is kept so next week's can be copied out
+   of it. Desaturating rather than just fading keeps the text readable while
+   draining every parent colour out of the card, which is what makes the live
+   columns stand out beside it. */
+.col.past{filter:grayscale(1);opacity:.62}
+.col.past:hover,.col.past:focus-within{opacity:.9}
 .col-where{font-size:12px;color:var(--muted);margin-top:3px;overflow-wrap:anywhere}
 .col-note{
   font-size:12px;color:var(--muted);margin-top:6px;padding-inline-start:8px;
@@ -488,7 +499,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 16;
+const APP_VERSION = 17;
 
 const HE_DAYS   = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 
@@ -581,6 +592,10 @@ function dayLabel(s){
   if (s === t) return 'היום · ' + date;
   if (s === shiftIso(t, 1)) return 'מחר · ' + date;
   if (s === shiftIso(t, 2)) return 'מחרתיים · ' + date;
+  /* Finished events sit on the board for a week, so the near past needs its
+     own words too — "אתמול" reads faster than working back from a weekday. */
+  if (s === shiftIso(t, -1)) return 'אתמול · ' + date;
+  if (s === shiftIso(t, -2)) return 'שלשום · ' + date;
 
   const name = d.getDay() === 6 ? 'שבת' : 'יום ' + HE_DAYS[d.getDay()];
   return name + ' · ' + date;
@@ -764,17 +779,27 @@ function render(){
   }
 
   const list = $('list');
+
+  /* Read before anything is torn down. Rebuilding the board throws its scroll
+     position away and every claim rebuilds it, so tapping "גם אני" on the
+     fourth column used to snap you back to the first. */
+  const old = list.querySelector('.board');
+  const wasAt = old ? old.scrollLeft : undefined;
+
   list.textContent = '';
 
   const today = todayIso();
+  /* Finished events stay on the board — the backend stops sending them after a
+     week — so that last Tuesday's training can be copied into next Tuesday's
+     rather than typed again. They are drawn grey and inert. */
   const events = state.events
-    .filter(e => e.date >= today)
+    .slice()
     .sort((a,b) => (a.date + (a.time || '99:99')).localeCompare(b.date + (b.time || '99:99')));
 
   if (!events.length){
     const empty = el('div', 'empty');
     empty.appendChild(el('div', 'big', '🚗'));
-    empty.appendChild(el('p', null, 'אין אירועים קרובים.'));
+    empty.appendChild(el('p', null, 'אין אירועים.'));
     empty.appendChild(el('p', null, 'הוסיפו את הראשון בכפתור למטה.'));
     list.appendChild(empty);
     return;
@@ -786,27 +811,64 @@ function render(){
      starts from. No day headings: with a column each, the date belongs in
      the column's own head. */
   const board = el('div', 'board');
-  for (const ev of events) board.appendChild(eventCol(ev));
+  const cols = [];
+  for (const ev of events){
+    const col = eventCol(ev);
+    cols.push({ col: col, past: ev.date < today });
+    board.appendChild(col);
+  }
   list.appendChild(board);
+
+  if (wasAt !== undefined){
+    board.scrollLeft = wasAt;
+    return;
+  }
+
+  /* First draw. Chronological order puts finished events at the start — the
+     right-hand end, in a right-to-left page — which is the last place the eye
+     should land. Open on the next event still to happen and leave the grey
+     ones behind it. */
+  const next = cols.filter(c => !c.past)[0];
+  if (next) next.col.scrollIntoView({ inline:'start', block:'nearest' });
 }
 
 function eventCol(ev){
-  const col = el('article', 'col');
+  const past = ev.date < todayIso();
+  const col = el('article', 'col' + (past ? ' past' : ''));
 
   const head = el('header', 'col-head');
   const txt = el('div', 'txt');
   txt.appendChild(el('h2', null, ev.title));
-  txt.appendChild(el('div', 'col-when', dayLabel(ev.date)));
+
+  const when = el('div', 'col-when');
+  when.appendChild(el('span', null, dayLabel(ev.date)));
+  /* Said in words as well as in grey, because colour alone is not a message —
+     and a washed-out card is exactly what a dim screen looks like anyway. */
+  if (past) when.appendChild(el('span', 'done', 'הסתיים'));
+  txt.appendChild(when);
+
   if (ev.place) txt.appendChild(el('div', 'col-where', '📍 ' + ev.place));
   if (ev.note) txt.appendChild(el('div', 'col-note', ev.note));
   head.appendChild(txt);
 
   const acts = el('div', 'col-acts');
-  const share = el('button', 'iconbtn', '⤴');
-  share.setAttribute('aria-label', 'שיתוף');
-  share.title = 'שיתוף';
-  share.onclick = () => shareEvent(ev);
-  acts.appendChild(share);
+
+  /* The reason a finished event is still on screen: so next week's can be made
+     from it in one tap instead of typed out again. */
+  const copy = el('button', 'iconbtn', '⧉');
+  copy.setAttribute('aria-label', 'שכפול לאירוע חדש');
+  copy.title = 'שכפול לאירוע חדש';
+  copy.onclick = () => duplicateEvent(ev);
+  acts.appendChild(copy);
+
+  /* Nothing to share about a ride that already happened. */
+  if (!past){
+    const share = el('button', 'iconbtn', '⤴');
+    share.setAttribute('aria-label', 'שיתוף');
+    share.title = 'שיתוף';
+    share.onclick = () => shareEvent(ev);
+    acts.appendChild(share);
+  }
 
   const edit = el('button', 'iconbtn', '✎');
   edit.setAttribute('aria-label', 'עריכה');
@@ -816,9 +878,30 @@ function eventCol(ev){
   head.appendChild(acts);
 
   col.appendChild(head);
-  col.appendChild(legBlock(ev, 'to'));
-  col.appendChild(legBlock(ev, 'back'));
+  col.appendChild(legBlock(ev, 'to', past));
+  col.appendChild(legBlock(ev, 'back', past));
   return col;
+}
+
+/* Copy an event into a new one, dated to the next time that weekday comes
+ * round — which for a training session that repeats is almost always the
+ * answer, and for anything else is one tap away from it. Drivers and riders
+ * are deliberately not copied: who drove last week says nothing about who is
+ * free next week, and a pre-filled name is a claim nobody made. */
+function duplicateEvent(ev){
+  openEdit(null);
+  $('e-title').value = ev.title;
+  $('e-date').value = nextWeekday(fromIso(ev.date).getDay());
+  $('e-time').value = ev.time || '';
+  $('e-back').value = ev.backTime || '';
+  $('e-place').value = ev.place || '';
+  $('e-note').value = ev.note || '';
+  $('edit-h').textContent = 'שכפול אירוע';
+
+  /* Seeded with the title as it stands, so nothing fires on sight — but left
+     untouched, so changing "יום שלישי" to "יום חמישי" still moves the date. */
+  resetAuto(ev.title);
+  say('title-read', '');
 }
 
 /* Both legs are always drawn, even when nobody has filled in a time. An event
@@ -830,15 +913,17 @@ function eventCol(ev){
  * icon, and their own word. Colour alone would not do it — a good number of
  * fathers cannot tell teal from violet, and everyone is reading this in a
  * car park in the sun. */
-function legBlock(ev, leg){
+function legBlock(ev, leg, past){
   const isTo = leg === 'to';
   const drivers = (isTo ? ev.toDriver : ev.backDriver) || [];
   const riders = (isTo ? ev.toRiders : ev.backRiders) || [];
   const time = isTo ? ev.time : ev.backTime;
   const iDrive = !!(state.me && drivers.indexOf(state.me.id) >= 0);
 
+  /* A finished leg with no driver is not a problem to be solved, so it does
+     not get the amber ring that means "somebody deal with this". */
   const box = el('section', 'leg ' + (isTo ? 'to' : 'back') +
-    (drivers.length ? '' : ' open'));
+    (drivers.length || past ? '' : ' open'));
 
   const head = el('div', 'leg-head');
   head.appendChild(el('span', 'leg-ico', isTo ? '🚗' : '🏠'));
@@ -867,10 +952,14 @@ function legBlock(ev, leg){
   }
   box.appendChild(who);
 
-  const act = el('button', 'act' + (iDrive ? ' ghost' : ''));
-  act.textContent = iDrive ? 'לא אוכל' : (drivers.length ? 'גם אני' : 'אני אסיע');
-  act.onclick = () => legAction(act, ev, leg, iDrive ? 'release' : 'claim');
-  box.appendChild(act);
+  /* Nothing to volunteer for on a ride that has already happened. The names
+     stay, as the record of who drove; the buttons go. */
+  if (!past){
+    const act = el('button', 'act' + (iDrive ? ' ghost' : ''));
+    act.textContent = iDrive ? 'לא אוכל' : (drivers.length ? 'גם אני' : 'אני אסיע');
+    act.onclick = () => legAction(act, ev, leg, iDrive ? 'release' : 'claim');
+    box.appendChild(act);
+  }
 
   /* Who needs this lift. The driver is not listed — they are in the car by
      definition, and the backend keeps them off the list for the same reason. */
@@ -878,7 +967,7 @@ function legBlock(ev, leg){
   if (riders.length) bar.appendChild(el('span', 'lbl', 'נוסעים:'));
   for (const id of riders) bar.appendChild(personChip(parentById(id), false));
 
-  if (state.me && !iDrive){
+  if (state.me && !iDrive && !past){
     const joined = riders.indexOf(state.me.id) >= 0;
     const join = el('button', 'join' + (joined ? ' on' : ''),
       joined ? '✓ נוסעים' : '+ צריכים טרמפ');

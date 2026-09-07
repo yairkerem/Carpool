@@ -49,6 +49,13 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   no driver is ringed in amber, because a trip home nobody has claimed is
   exactly the one people forget.
 - **Drivers stacked, one to a line**, under the leg they signed up for.
+- **Finished events go grey and stay a week.** They keep their record of who
+  drove but lose their buttons — there is nothing to volunteer for on a ride
+  that has already happened — and carry a **⧉** that copies the event into a
+  new one, dated to the next time that weekday comes round. That is why they
+  are still there: so next Tuesday's training is one tap rather than retyping.
+  After a week they stop being sent. The row stays in the spreadsheet; who
+  drove whom is the only history this thing keeps.
 - **One tap to drive.** *אני אסיע* puts you on a leg; *לא אוכל* takes you off
   again. A leg holds **as many drivers as put themselves on it** — one car does
   not always fit the squad, and two parents splitting a run is an arrangement
