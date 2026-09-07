@@ -488,7 +488,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 13;
+const APP_VERSION = 14;
 
 const HE_DAYS   = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 
@@ -1594,7 +1594,10 @@ function askClaim(candidates, name){
     list.appendChild(b);
   }
 
-  say('setup-msg', '');
+  /* Staying on this screen is the correct answer to an unanswered question,
+     but it looks identical to the button having done nothing — so say out
+     loud that the app is waiting, rather than leaving a box to be noticed. */
+  say('setup-msg', 'בחרו למטה מי אתם כדי להמשיך.', 'ok');
   $('claim-box').hidden = false;
   $('claim-box').scrollIntoView({ block:'center' });
 }
