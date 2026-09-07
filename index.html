@@ -136,6 +136,19 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
    columns stand out beside it. */
 .col.past{filter:grayscale(1);opacity:.62}
 .col.past:hover,.col.past:focus-within{opacity:.9}
+
+/* Left on whatever the board just glided to. The board moving is easy to miss
+   on a phone — the columns look alike — so the destination says "this one". */
+@keyframes landed{
+  0%   {box-shadow:0 0 0 3px var(--brand), var(--shadow)}
+  70%  {box-shadow:0 0 0 3px var(--brand), var(--shadow)}
+  100% {box-shadow:0 0 0 0 transparent, var(--shadow)}
+}
+.col.landed{animation:landed 1.4s ease-out}
+@media (prefers-reduced-motion: reduce){
+  .col.landed{animation:none}
+  .board{scroll-behavior:auto}
+}
 .col-where{font-size:12px;color:var(--muted);margin-top:3px;overflow-wrap:anywhere}
 .col-note{
   font-size:12px;color:var(--muted);margin-top:6px;padding-inline-start:8px;
@@ -499,7 +512,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 17;
+const APP_VERSION = 19;
 
 const HE_DAYS   = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 
@@ -530,10 +543,57 @@ function el(tag, cls, text){
   return n;
 }
 
+/* Where the board was left, in pixels, and an event the next render should
+ * bring into view by name. The second beats the first: after saving an event
+ * you want to be looking at that event, wherever it has moved to. */
+let boardAt = null;
+let focusEvent = null;
+
 function show(name){
+  /* Read the board's position before the screen is hidden. A display:none
+     element reports scrollLeft 0, so opening the editor silently forgot where
+     you were — and saving then dropped you back at the first column, which is
+     the bug this comment exists to prevent coming back. */
+  const list = $('s-list');
+  if (list.classList.contains('active')){
+    const board = list.querySelector('.board');
+    if (board) boardAt = board.scrollLeft;
+  }
+
   for (const s of document.querySelectorAll('.screen')) s.classList.remove('active');
   $('s-' + name).classList.add('active');
   window.scrollTo(0, 0);
+}
+
+/* Moving the board on the reader's behalf has to be *seen* moving, or it reads
+ * as the app having lost their place. So: glide rather than jump, and leave a
+ * ring on whatever we landed on. Both are dropped for anyone who has asked the
+ * system for less motion. */
+function reveal(col, animate){
+  const still = !!(window.matchMedia &&
+    matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  /* Animate only when somebody is actually there to see it. A browser pauses
+     smooth scrolling in a background tab, so a board re-rendered while the
+     app is hidden would never finish moving and would be sitting in the wrong
+     place on return. The animation is a courtesy; landing correctly is not. */
+  const watching = document.visibilityState === 'visible';
+  const smooth = animate && !still && watching;
+
+  /* Called straight, not inside requestAnimationFrame. The column is already
+     in the document, and scrollIntoView forces the layout it needs — whereas
+     a frame callback never runs at all while the tab is in the background,
+     which silently turned this whole function into a no-op. */
+  col.scrollIntoView({
+    behavior: smooth ? 'smooth' : 'auto',
+    inline: 'start',
+    block: 'nearest'
+  });
+
+  if (still) return;
+  col.classList.remove('landed');
+  void col.offsetWidth;                 // restart the animation
+  col.classList.add('landed');
 }
 
 function say(id, text, kind){
@@ -782,9 +842,14 @@ function render(){
 
   /* Read before anything is torn down. Rebuilding the board throws its scroll
      position away and every claim rebuilds it, so tapping "גם אני" on the
-     fourth column used to snap you back to the first. */
+     fourth column used to snap you back to the first. Only trust the reading
+     while the board is actually on screen — hidden, it always says 0. */
+  /* $('s-list'), not `list`: the screen carries the `active` class, while
+     `list` is the plain div inside it and never has it. Testing the wrong one
+     meant this reading never happened at all, and every re-render restored
+     whatever position had been recorded some screens ago. */
   const old = list.querySelector('.board');
-  const wasAt = old ? old.scrollLeft : undefined;
+  if (old && $('s-list').classList.contains('active')) boardAt = old.scrollLeft;
 
   list.textContent = '';
 
@@ -814,27 +879,39 @@ function render(){
   const cols = [];
   for (const ev of events){
     const col = eventCol(ev);
-    cols.push({ col: col, past: ev.date < today });
+    cols.push({ col: col, id: ev.id, past: ev.date < today });
     board.appendChild(col);
   }
   list.appendChild(board);
 
-  if (wasAt !== undefined){
-    board.scrollLeft = wasAt;
+  /* An event we were told to show wins over everything: whoever just saved one
+     wants to be looking at it, and it may well have moved to a different place
+     in the order because its date changed. */
+  if (focusEvent){
+    const wanted = cols.filter(c => c.id === focusEvent)[0];
+    focusEvent = null;
+    if (wanted){ reveal(wanted.col, true); return; }
+  }
+
+  /* Otherwise put it back exactly where it was, without animating — nothing
+     moved, so nothing should appear to. */
+  if (boardAt !== null){
+    board.scrollLeft = boardAt;
     return;
   }
 
   /* First draw. Chronological order puts finished events at the start — the
      right-hand end, in a right-to-left page — which is the last place the eye
-     should land. Open on the next event still to happen and leave the grey
-     ones behind it. */
+     should land. Glide to the next event still to happen, so the movement
+     itself says there is older stuff back there. */
   const next = cols.filter(c => !c.past)[0];
-  if (next) next.col.scrollIntoView({ inline:'start', block:'nearest' });
+  if (next) reveal(next.col, true);
 }
 
 function eventCol(ev){
   const past = ev.date < todayIso();
   const col = el('article', 'col' + (past ? ' past' : ''));
+  col.dataset.id = ev.id;
 
   const head = el('header', 'col-head');
   const txt = el('div', 'txt');
@@ -1505,9 +1582,17 @@ async function saveEvent(){
         say('edit-msg', 'השמירה נכשלה: ' + (r.error || 'שגיאה'), 'err');
         return;
       }
+      /* The board should come back looking at what was just saved, not at
+         wherever it happened to be — and a new event, or one whose date
+         changed, will not be where the old scroll position points. */
+      if (i === 0) focusEvent = ev.id || r.id || null;
     }
-    await refresh(true);
+    /* Back to the board *before* reloading it. refresh() renders, and a render
+       that happens while this screen is still hidden cannot scroll anything —
+       scrollIntoView on a display:none element does nothing at all, so the
+       event we mean to reveal would be consumed and quietly missed. */
     show('list');
+    await refresh(true);
   } catch (err) {
     say('edit-msg', netMessage(err), 'err');
   } finally {
@@ -1525,8 +1610,8 @@ async function deleteEvent(){
       say('edit-msg', 'המחיקה נכשלה: ' + (r.error || 'שגיאה'), 'err');
       return;
     }
-    await refresh(true);
     show('list');
+    await refresh(true);
   } catch (err) {
     say('edit-msg', netMessage(err), 'err');
   }
