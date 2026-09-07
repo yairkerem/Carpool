@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>הסעות</title>
+<title>Carpool</title>
 
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0d9488">
@@ -15,7 +15,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="הסעות">
+<meta name="apple-mobile-web-app-title" content="Carpool">
 
 <style>
 /* ---------- tokens ---------- */
@@ -271,7 +271,20 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
   padding:14px;margin-bottom:16px;
 }
 .sect h3{font-size:14px;margin-bottom:10px}
-.people{display:flex;flex-wrap:wrap;gap:7px}
+/* A column, not a wrapped row of chips: each parent now carries a badge and
+   possibly a remove button, and those need a line each to stay hittable. */
+.people{display:flex;flex-direction:column;gap:8px}
+.person{display:flex;align-items:center;gap:8px}
+.badge{
+  font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;
+  background:var(--brand-soft);color:var(--brand);flex:none;
+}
+.kick{
+  margin-inline-start:auto;flex:none;cursor:pointer;
+  width:30px;height:30px;border-radius:9px;font-size:18px;line-height:1;
+  border:1px solid var(--line);background:transparent;color:var(--danger);
+}
+.kick:active{background:var(--line)}
 .rowbtns{display:flex;gap:8px;flex-wrap:wrap}
 .rowbtns button{
   border:1px solid var(--line);background:transparent;color:var(--ink);
@@ -286,7 +299,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
      thing the gear opens later — which keeps "where do I change my name?" from
      having two answers. -->
 <section id="s-setup" class="screen">
-  <h1 id="setup-h">הסעות</h1>
+  <h1 id="setup-h">Carpool</h1>
   <p class="lede" id="setup-lede">לוח נסיעות משותף להורים. לכל אירוע יש נהג להלוך ונהג לחזור, וכל אחד משבץ את עצמו.</p>
 
   <div class="field">
@@ -340,6 +353,10 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
   <div class="sect" id="people-sect" hidden>
     <h3>ההורים בקבוצה</h3>
     <div id="people-list" class="people"></div>
+    <p class="hint" id="people-note" hidden>
+      כמנהל/ת אפשר להסיר הורה מהקבוצה. השיבוצים העתידיים שלו/ה משתחררים,
+      והנסיעות שכבר היו נשארות כפי שהיו.
+    </p>
   </div>
 
   <!-- Always on screen, connected or not. A parent stuck on this page with an
@@ -363,7 +380,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 <section id="s-list" class="screen">
   <header class="bar">
     <div class="bar-title">
-      <b id="group-name">הסעות</b>
+      <b id="group-name">Carpool</b>
       <span id="me-chip" class="chip dot" hidden></span>
     </div>
     <div class="bar-acts">
@@ -451,7 +468,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 9;
+const APP_VERSION = 10;
 
 const HE_DAYS   = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 
@@ -564,7 +581,10 @@ async function api(payload, timeoutMs, url){
     const res = await fetch(target, {
       method:'POST',
       headers:{ 'Content-Type':'text/plain;charset=utf-8' },
-      body: JSON.stringify(Object.assign({ secret: state.secret }, payload)),
+      /* `me` rides along on everything so the backend can refuse writes from
+         somebody the group has removed, whatever they are trying to do. */
+      body: JSON.stringify(Object.assign(
+        { secret: state.secret, me: state.me ? state.me.id : '' }, payload)),
       redirect:'follow',
       signal: ctrl.signal
     });
@@ -587,11 +607,35 @@ function netMessage(err){
 /* A rejected secret always goes back to setup, from whichever screen it
    happened on — there is nothing useful to do on the board without one. */
 function rejected(error){
-  if (String(error || '').toLowerCase().indexOf('unauthorized') < 0) return false;
+  const e = String(error || '').toLowerCase();
+
+  if (e.indexOf('removed') >= 0){
+    signedOut('הוסרתם מהקבוצה על ידי מנהל/ת הקבוצה.');
+    return true;
+  }
+  if (e.indexOf('unauthorized') < 0) return false;
+
   localStorage.removeItem(LS.secret);
   state.secret = '';
   openSetup('הסיסמה המשותפת נדחתה. הזינו אותה מחדש.');
   return true;
+}
+
+/* Being removed empties the device: the board is not theirs to keep, and
+   leaving a stale copy on the phone only invites confusion about whether it
+   is still live. */
+function signedOut(message){
+  for (const k of Object.keys(LS)) localStorage.removeItem(LS[k]);
+  state.me = null;
+  state.parents = [];
+  state.events = [];
+  openSetup(message);
+}
+
+function iAmAdmin(){
+  if (!state.me) return false;
+  const mine = state.parents.filter(p => p.id === state.me.id)[0];
+  return !!(mine && mine.admin);
 }
 
 /* ---- loading and caching -------------------------------------- */
@@ -633,6 +677,16 @@ async function refresh(quiet){
     state.group = r.group || '';
     state.parents = r.parents || [];
     state.events = r.events || [];
+
+    /* Reading the board is still allowed after removal — the secret is the
+       group's, not each parent's — so the app has to notice on its own that
+       it is no longer a member, rather than waiting to be refused a write. */
+    const mine = state.parents.filter(p => p.id === (state.me && state.me.id))[0];
+    if (mine && mine.removed){
+      signedOut('הוסרתם מהקבוצה על ידי מנהל/ת הקבוצה.');
+      return;
+    }
+
     state.offline = false;
     saveBoard();
     banner('');
@@ -674,7 +728,7 @@ function personChip(p, solid){
 
 /* ---- rendering ------------------------------------------------ */
 function render(){
-  $('group-name').textContent = state.group || 'הסעות';
+  $('group-name').textContent = state.group || 'Carpool';
 
   const chip = $('me-chip');
   if (state.me){
@@ -1392,7 +1446,7 @@ function openSetup(message){
   const connected = !!(state.backend && state.secret && state.me);
   state.setupReturn = connected ? 'list' : null;
 
-  $('setup-h').textContent = connected ? 'הגדרות' : 'הסעות';
+  $('setup-h').textContent = connected ? 'הגדרות' : 'Carpool';
   $('setup-lede').hidden = connected;
   $('b-setup-cancel').hidden = !connected;
   $('connect-label').textContent = connected ? 'שמירה' : 'התחברות';
@@ -1404,10 +1458,30 @@ function openSetup(message){
   pickedColor = (state.me && state.me.color) || COLORS[0];
   paintSwatches();
 
-  $('people-sect').hidden = !connected || !state.parents.length;
+  const here = state.parents.filter(p => !p.removed);
+  $('people-sect').hidden = !connected || !here.length;
+  $('people-note').hidden = !iAmAdmin();
+
   const people = $('people-list');
   people.textContent = '';
-  for (const p of state.parents) people.appendChild(personChip(p, true));
+  for (const p of here){
+    const row = el('div', 'person');
+    row.appendChild(personChip(p, true));
+    if (p.admin) row.appendChild(el('span', 'badge', 'מנהל/ת'));
+
+    /* An admin can remove anybody but themselves. Removing yourself would
+       leave a group with no one able to tidy it, and the way back from that
+       is a spreadsheet edit. */
+    if (iAmAdmin() && p.id !== state.me.id){
+      const x = el('button', 'kick', '×');
+      x.type = 'button';
+      x.title = 'הסרה מהקבוצה';
+      x.setAttribute('aria-label', 'הסרת ' + p.name + ' מהקבוצה');
+      x.onclick = () => kick(p);
+      row.appendChild(x);
+    }
+    people.appendChild(row);
+  }
 
   /* The version block stays; only leaving a group you are not in makes no
      sense. */
@@ -1476,6 +1550,33 @@ async function connect(){
   } finally {
     busy('b-connect', 'connect-spin', 'connect-label', false,
       state.setupReturn ? 'שמירה' : 'התחברות');
+  }
+}
+
+/* The confirmation names the consequence, not just the person. "Remove Michal"
+   sounds tidy; "and three rides she was driving go back to nobody" is what the
+   admin actually needs to weigh. */
+async function kick(p){
+  if (!confirm('להסיר את ' + p.name + ' מהקבוצה?\n\n' +
+               'כל השיבוצים העתידיים שלו/ה ישוחררו ויחזרו להיות ללא נהג. ' +
+               'נסיעות שכבר היו יישארו כפי שהן.')) return;
+
+  say('setup-msg', 'מסיר…', 'ok');
+  try {
+    const r = await api({ action:'kick', id: p.id, by: state.me.id }, 25000);
+    if (!r.ok){
+      if (rejected(r.error)) return;
+      say('setup-msg', r.error === 'not-admin'
+        ? 'רק מנהל/ת הקבוצה יכול/ה להסיר הורים.'
+        : ('ההסרה נכשלה: ' + (r.error || 'שגיאה')), 'err');
+      return;
+    }
+    await refresh(true);
+    openSetup('');
+    say('setup-msg', p.name + ' הוסר/ה מהקבוצה.' +
+      (r.freed ? ' ' + r.freed + ' נסיעות חזרו להיות ללא נהג.' : ''), 'ok');
+  } catch (err) {
+    say('setup-msg', netMessage(err), 'err');
   }
 }
 

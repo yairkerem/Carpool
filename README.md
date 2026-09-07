@@ -60,6 +60,17 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   can call rather than open WhatsApp.
 - **Share to WhatsApp**, because that is where the group already lives — the
   app writes the message, it does not try to replace the conversation.
+- **An admin, to keep the list honest.** The first parent to register is the
+  admin — whoever set the group up, without being told to claim anything — and
+  can remove a member from settings. Removing frees every future leg that
+  parent had claimed, because a family that has left still showing as driving
+  next Tuesday is worse than not removing them at all. Past rides are left
+  exactly as they were: a record of who drove, not a plan that can go wrong.
+
+  It is housekeeping rather than a lock. Everyone shares one secret, so a
+  removed parent who kept it could register again under a new name. To shut
+  somebody out properly, change `SHARED_SECRET` and give the new one to
+  everybody else.
 - Works offline on the last loaded board, and installs to a home screen on
   both Android and iOS.
 

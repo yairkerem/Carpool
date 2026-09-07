@@ -69,7 +69,7 @@ function dailyReminder() {
      reason for this mail to hand them all to everybody. */
   MailApp.sendEmail({
     bcc: to.join(','),
-    subject: (PROPS.getProperty('GROUP_NAME') || 'הסעות') + ': אין נהג למחר',
+    subject: (PROPS.getProperty('GROUP_NAME') || 'Carpool') + ': אין נהג למחר',
     body: 'נסיעות מחר שעדיין אין להן נהג:\n\n' + open.join('\n') +
           '\n\nפתחו את האפליקציה כדי לשבץ את עצמכם.'
   });

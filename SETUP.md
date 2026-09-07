@@ -144,6 +144,25 @@ Installing it:
 Either way it opens without browser chrome and shows the last loaded board even
 with no signal.
 
+## Who is the admin
+
+**The first parent to register.** That is whoever set the group up — you — and
+nobody has to claim anything. The admin sees a **×** next to each of the other
+parents in settings, and removing one frees every future leg that parent had
+claimed, so the board stops showing rides as covered by somebody who has left.
+Rides that already happened are untouched.
+
+An admin cannot remove themselves, which means a group always has one. If the
+admin ever needs to change — a phone lost, a family leaving — the `admin`
+column in the `Parents` tab is a plain `1` or blank, and you own the
+spreadsheet. Put the `1` on whoever should have it.
+
+**Removing is housekeeping, not a lock.** Everyone in the group shares one
+secret, so a removed parent who kept it could register again under a new name.
+What they cannot do is keep driving under the old one. To shut somebody out
+properly, change `SHARED_SECRET` in Script Properties and send the new one to
+everybody else.
+
 ## Optional: the nightly nudge
 
 A carpool fails quietly — nobody claimed tomorrow morning and nobody noticed.

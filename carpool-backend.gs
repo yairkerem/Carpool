@@ -25,7 +25,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 2;
+const BACKEND_VERSION = 3;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -38,7 +38,13 @@ const EVENT_COLS = [
   'createdBy', 'updatedAt', 'deleted'
 ];
 
-const PARENT_COLS = ['id', 'name', 'color', 'phone', 'email', 'updatedAt'];
+/* `admin` and `removed` are appended rather than slotted in where they read
+ * best. readAll maps by position, so this array has to match the physical
+ * order of a sheet that already exists — insert a column in the middle and
+ * every board written before today reads one field to the left. New columns
+ * go on the end, always. */
+const PARENT_COLS = ['id', 'name', 'color', 'phone', 'email', 'updatedAt',
+                     'admin', 'removed'];
 
 /* An event is only interesting until the day it happens. Rows older than this
  * are still in the sheet — nothing is ever deleted behind anyone's back — they
@@ -48,6 +54,9 @@ const KEEP_PAST_DAYS = 2;
 /* Two legs, and the app and the sheet must agree on their names. */
 const LEGS = { to: 'toDriver', back: 'backDriver' };
 const RIDERS = { to: 'toRiders', back: 'backRiders' };
+
+/* Actions that change the board, and so are closed to a removed parent. */
+const WRITES = ['me', 'save', 'remove', 'claim', 'release', 'ride', 'kick'];
 
 
 // ---------- entry points ----------
@@ -63,6 +72,14 @@ function doPost(e) {
       return json({ ok: false, error: 'unauthorized' });
     }
 
+    /* Somebody who has been removed can still read the board — they hold the
+     * group's secret, and taking that back means changing it for everyone.
+     * What they cannot do is write to it. This is bookkeeping, not a lock:
+     * see the note above kickParent. */
+    if (WRITES.indexOf(req.action) >= 0 && req.me && isRemoved(req.me)) {
+      return json({ ok: false, error: 'removed' });
+    }
+
     switch (req.action) {
       case 'ping':    return json(ping());
       case 'state':   return json(state());
@@ -72,6 +89,7 @@ function doPost(e) {
       case 'claim':   return json(claim(req.id, req.leg, req.parentId));
       case 'release': return json(release(req.id, req.leg, req.parentId));
       case 'ride':    return json(setRider(req.id, req.leg, req.parentId, req.riding));
+      case 'kick':    return json(kickParent(req.id, req.by));
       default:        return json({ ok: false, error: 'unknown action: ' + req.action });
     }
   } catch (err) {
@@ -252,14 +270,21 @@ function state() {
     }))
     .sort((a, b) => (a.date + (a.time || '99:99')).localeCompare(b.date + (b.time || '99:99')));
 
-  const parents = readAll(sheet('Parents', PARENT_COLS), PARENT_COLS)
-    .map(p => ({ id: p.id, name: p.name, color: p.color, phone: p.phone }));
+  ensureAdmin();
+
+  /* Removed parents travel with the rest, flagged. The app hides them from the
+     list of who is in the group, but still needs their name to caption a ride
+     they drove last month — drop them here and the past fills up with "הורה". */
+  const people = parents().map(p => ({
+    id: p.id, name: p.name, color: p.color, phone: p.phone,
+    admin: p.admin === '1', removed: p.removed === '1'
+  }));
 
   return {
     ok: true,
     version: BACKEND_VERSION,
     group: PROPS.getProperty('GROUP_NAME') || '',
-    parents: parents,
+    parents: people,
     events: events,
     now: new Date().toISOString()
   };
@@ -285,6 +310,33 @@ function parseDrivers(raw) {
   return s.charAt(0) === '[' ? parseList(s) : [s];
 }
 
+function parents() {
+  return readAll(sheet('Parents', PARENT_COLS), PARENT_COLS);
+}
+
+function isRemoved(id) {
+  const p = parents().filter(x => x.id === id)[0];
+  return !!(p && p.removed === '1');
+}
+
+/* Somebody has to be able to tidy the group up, and the obvious somebody is
+ * whoever set it up — they own the script and the spreadsheet already. So the
+ * first parent to register is the admin, and no one has to be told to claim
+ * it. A board written before admins existed gets the same answer: its first
+ * row is its first registrant.
+ *
+ * If that person ever leaves the group, the `admin` column in the Parents tab
+ * is a plain 1 or blank, and the owner of the sheet can move it by hand. */
+function ensureAdmin() {
+  const all = parents().filter(p => p.removed !== '1');
+  if (!all.length || all.some(p => p.admin === '1')) return;
+
+  const first = all[0];                  // lowest row = earliest to register
+  first.admin = '1';
+  first.updatedAt = new Date().toISOString();
+  writeRow(sheet('Parents', PARENT_COLS), PARENT_COLS, first);
+}
+
 /* Registering is the whole of signing in. A parent types their name once; the
  * id that comes back is what their phone stores and sends from then on. Names
  * are not unique and are not treated as such — two Michals in one class is
@@ -298,6 +350,11 @@ function saveParent(parent) {
     const all = readAll(sh, PARENT_COLS);
     const existing = parent.id && all.filter(p => p.id === parent.id)[0];
 
+    if (existing && existing.removed === '1') return { ok: false, error: 'removed' };
+
+    /* The very first parent through the door is the admin. */
+    const anyAdmin = all.some(p => p.admin === '1' && p.removed !== '1');
+
     const row = {
       _row: existing ? existing._row : 0,
       id: existing ? existing.id : uid(),
@@ -305,10 +362,82 @@ function saveParent(parent) {
       color: String(parent.color || ''),
       phone: String(parent.phone || ''),
       email: String(parent.email || (existing ? existing.email : '')),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      admin: existing ? existing.admin : (anyAdmin ? '' : '1'),
+      removed: ''
     };
     writeRow(sh, PARENT_COLS, row);
-    return { ok: true, parent: { id: row.id, name: row.name, color: row.color, phone: row.phone } };
+    return {
+      ok: true,
+      parent: { id: row.id, name: row.name, color: row.color,
+                phone: row.phone, admin: row.admin === '1' }
+    };
+  });
+}
+
+/* Taking somebody off every ride they had signed up for, from today forward.
+ *
+ * This is the part that matters. Marking a family as gone and leaving their
+ * name on next Tuesday's return leg would be worse than not removing them at
+ * all: the board would show a ride as covered by somebody who is no longer
+ * coming, and nobody would look at it again until the children were waiting.
+ *
+ * The past is left exactly as it was. It is a record of who drove, not a plan
+ * that can still go wrong. */
+function releaseEverywhere(parentId) {
+  const sh = sheet('Events', EVENT_COLS);
+  const from = today();
+  let freed = 0;
+
+  readAll(sh, EVENT_COLS).forEach(function (e) {
+    if (e.deleted === '1' || e.date < from) return;
+    let touched = false;
+
+    ['toDriver', 'backDriver'].forEach(function (col) {
+      const list = parseDrivers(e[col]);
+      if (list.indexOf(parentId) < 0) return;
+      e[col] = JSON.stringify(list.filter(p => p !== parentId));
+      touched = true;
+      freed++;
+    });
+    ['toRiders', 'backRiders'].forEach(function (col) {
+      const list = parseList(e[col]);
+      if (list.indexOf(parentId) < 0) return;
+      e[col] = JSON.stringify(list.filter(p => p !== parentId));
+      touched = true;
+    });
+
+    if (touched) {
+      e.updatedAt = new Date().toISOString();
+      writeRow(sh, EVENT_COLS, e);
+    }
+  });
+  return freed;
+}
+
+/* Removing a member is housekeeping, not a lock. Everyone in the group shares
+ * one secret, so a removed parent who kept it could still register again under
+ * a new name — what they cannot do is go on driving under the old one, and
+ * their claims on future rides are handed back. To shut somebody out properly,
+ * change SHARED_SECRET and give the new one to everybody else. */
+function kickParent(targetId, byId) {
+  return withLock(function () {
+    const sh = sheet('Parents', PARENT_COLS);
+    const all = readAll(sh, PARENT_COLS);
+    const by = all.filter(p => p.id === byId)[0];
+    const target = all.filter(p => p.id === targetId)[0];
+
+    if (!by || by.admin !== '1' || by.removed === '1') return { ok: false, error: 'not-admin' };
+    if (!target) return { ok: false, error: 'not found' };
+    if (target.id === by.id) return { ok: false, error: 'self' };
+    if (target.removed === '1') return { ok: true, freed: 0 };
+
+    target.removed = '1';
+    target.admin = '';                    // no coming back as an admin
+    target.updatedAt = new Date().toISOString();
+    writeRow(sh, PARENT_COLS, target);
+
+    return { ok: true, freed: releaseEverywhere(targetId), name: target.name };
   });
 }
 
@@ -458,7 +587,12 @@ function testSetup() {
     out.push('Spreadsheet    ' + ss.getName() + '  (bound — good)');
     out.push('               ' + ss.getUrl());
     const st = state();
-    out.push('Parents        ' + st.parents.length);
+    const active = st.parents.filter(p => !p.removed);
+    const admins = active.filter(p => p.admin).map(p => p.name);
+    out.push('Parents        ' + active.length +
+      (st.parents.length > active.length
+        ? '  (+' + (st.parents.length - active.length) + ' removed)' : ''));
+    out.push('Admin          ' + (admins.length ? admins.join(', ') : '(none yet)'));
     out.push('Events ahead   ' + st.events.length);
   } catch (err) {
     out.push('Spreadsheet    FAILED — ' + err);
