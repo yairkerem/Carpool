@@ -157,6 +157,25 @@ admin ever needs to change — a phone lost, a family leaving — the `admin`
 column in the `Parents` tab is a plain `1` or blank, and you own the
 spreadsheet. Put the `1` on whoever should have it.
 
+### A device is a member, not a person
+
+Registering is per device. Connect from a laptop and then from a phone and the
+`Parents` tab gains **two rows** with the same name and different ids, and the
+group sees two people. It also produces one confusing symptom: `testSetup`
+reports you as the admin while the app on the other device does not show the
+admin controls, because the `1` is on the first row and that device holds the
+id of the second.
+
+Settings shows the device's own id under the version, next to the word `admin`
+when the group agrees. Compare it against the `id` column in the `Parents` tab:
+
+- **Wrong row has the `1`** — move it to the row whose id matches the device
+  you actually use.
+- **A row belongs to a device you have stopped using** — delete the row.
+
+Anyone who deletes their own row is simply asked to register again next time
+they open the app.
+
 **Removing is housekeeping, not a lock.** Everyone in the group shares one
 secret, so a removed parent who kept it could register again under a new name.
 What they cannot do is keep driving under the old one. To shut somebody out

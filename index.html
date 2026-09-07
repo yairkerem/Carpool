@@ -231,7 +231,7 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 @keyframes dateflash{from{background:var(--brand-soft)} to{background:var(--card)}}
 .flash{animation:dateflash 1.1s ease-out}
 @media (prefers-reduced-motion: reduce){ .flash{animation:none} }
-.hint.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;direction:ltr;text-align:start}
+.hint.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;direction:ltr;text-align:start;white-space:pre-line}
 fieldset{border:0;padding:0;margin:0 0 16px}
 fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
@@ -468,7 +468,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 11;
+const APP_VERSION = 12;
 
 const HE_DAYS   = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 
@@ -677,6 +677,10 @@ async function refresh(quiet){
     state.group = r.group || '';
     state.parents = r.parents || [];
     state.events = r.events || [];
+    /* Every reply carries it, and settings should not have to be re-saved
+       before the app can say which backend it is actually talking to — that
+       number is the first thing anyone asks for when something looks wrong. */
+    if (r.version) state.backendVersion = r.version;
 
     /* Reading the board is still allowed after removal — the secret is the
        group's, not each parent's — so the app has to notice on its own that
@@ -1486,8 +1490,15 @@ function openSetup(message){
   /* The version block stays; only leaving a group you are not in makes no
      sense. */
   $('b-forget').hidden = !connected;
+  /* The device's own parent id, and whether the group thinks it is an admin.
+     A phone is a member, not a person: connecting from a second device makes
+     a second row in the sheet, with the same name and a different id — so
+     "the sheet says I am the admin but the app disagrees" is a real thing
+     that can happen, and this line is what makes it visible instead of
+     baffling. It is the id in the Parents tab, to compare against. */
   $('ver-line').textContent = 'app v' + APP_VERSION +
-    (state.backendVersion ? ' · backend v' + state.backendVersion : '');
+    (state.backendVersion ? ' · backend v' + state.backendVersion : '') +
+    (state.me ? '\n' + state.me.id + (iAmAdmin() ? ' · admin' : '') : '');
 
   say('setup-msg', message || '', message ? 'err' : '');
   show('setup');
