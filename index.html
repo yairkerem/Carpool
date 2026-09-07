@@ -432,7 +432,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 5;
+const APP_VERSION = 6;
 
 const HE_DAYS   = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 
@@ -952,30 +952,114 @@ function findDay(text){
 }
 
 /* ---- the times ------------------------------------------------ */
-/* First time found is the way there, second the way back — which is the order
- * people say them in, and the order a range is written in. */
-function findTimes(text){
+/* 16:00, 1600 and 16 all mean four in the afternoon; 1630 and 16:30 both mean
+ * half past. First time found is the way there, second the way back — the
+ * order people say them in, and the order a range is written in.
+ *
+ * The looser the form, the more things it can be mistaken for, so the two
+ * forms are scanned in separate passes and the written-out one wins outright:
+ * bare numbers are only read as times when the line contains no HH:MM at all.
+ * Otherwise "אימון 16:30 עם 12 ילדים" files twelve children as the ride home. */
+
+/* Words that turn a nearby number into a count rather than a clock. */
+const COUNT_AFTER = ['קבוצות','קבוצה','ילדים','ילד','משתתפים','שחקנים','שחקניות',
+  'מקומות','נקודות','שנים','שנה','דקות','שעות','איש','אנשים','בנים','בנות',
+  'כיתות','זוגות','חודשים','שבועות','מטר','קמ','קילומטר','שקל','שח'];
+const COUNT_BEFORE = ['גיל','כיתה','מתחת','מעל','שנת','עונת','מחזור','בן','בת',
+  'קבוצה','מספר','חדר','רחוב','בית'];
+const MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט',
+  'ספטמבר','אוקטובר','נובמבר','דצמבר'];
+
+/* A number wedged among other digits, dots, colons or slashes is part of
+ * something bigger — a date, a phone number, a score. charAt on both sides
+ * rather than a lookbehind, which older iOS Safari cannot even parse. */
+function isolatedNumber(text, start, end){
+  const bad = c => c === '.' || c === ':' || c === '/' || (c >= '0' && c <= '9');
+  return !bad(text.charAt(start - 1)) && !bad(text.charAt(end));
+}
+
+function wordBefore(text, i){
+  const m = text.slice(0, i).match(/([א-ת'׳]+)[\s\-–—]*$/);
+  return m ? stripPrefix(m[1].replace(/['׳]/g, '')) : '';
+}
+function wordAfter(text, i){
+  const m = text.slice(i).match(/^[\s\-–—]*([א-ת'׳]+)/);
+  return m ? stripPrefix(m[1].replace(/['׳]/g, '')) : '';
+}
+
+function hhmm(h, m){
+  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+}
+
+/* HH:MM and HH.MM — written as a time, so read as one with few questions. */
+function scanWritten(text){
   const out = [];
   const re = /(\d{1,2})[:.](\d{2})/g;
   let m;
-  while ((m = re.exec(text))){
+  while ((m = re.exec(text)) && out.length < 2){
     const h = Number(m[1]), min = Number(m[2]);
-    if (h > 23 || min > 59) continue;
-    /* "8.9.26" is a date, not twenty-six past nine. A dot or a digit on either
-       side gives it away — both sides, because the match can land on the tail
-       of a dotted date as easily as the head of one. charAt rather than a
-       lookbehind, which older iOS Safari cannot parse. */
-    const after = text.charAt(m.index + m[0].length);
-    const before = text.charAt(m.index - 1);
-    if (after === '.' || (after >= '0' && after <= '9')) continue;
-    if (before === '.' || (before >= '0' && before <= '9')) continue;
-
-    out.push({
-      v: String(h).padStart(2, '0') + ':' + m[2],
-      start: m.index, end: m.index + m[0].length
-    });
-    if (out.length === 2) break;
+    const end = m.index + m[0].length;
+    /* "8.9.26" is a date, not twenty-six past nine — and the match can land on
+       its tail as easily as its head, so both sides are checked. */
+    if (h > 23 || min > 59 || !isolatedNumber(text, m.index, end)) continue;
+    out.push({ v: hhmm(h, min), start: m.index, end: end });
   }
+  return out;
+}
+
+/* 1600, 1630, 16 — shorthand, and shorthand is ambiguous, so this pass is the
+ * cautious one. */
+function scanBare(text){
+  const out = [];
+  const re = /\d{1,4}/g;
+  let m;
+  while ((m = re.exec(text)) && out.length < 2){
+    const d = m[0], end = m.index + d.length;
+    if (!isolatedNumber(text, m.index, end)) continue;
+    if (d.length === 3) continue;                 // 160 is not a time in any reading
+
+    let h, min;
+    if (d.length === 4){
+      h = Number(d.slice(0, 2)); min = Number(d.slice(2));
+      /* 2026 is a year far more often than it is 20:26. Eight in the evening
+         written bare is the price; "20:30" still works. */
+      if (d.slice(0, 2) === '20') continue;
+    } else {
+      h = Number(d); min = 0;
+      /* Under six is a count, not an event: nobody drives a child anywhere at
+         four in the morning, but "3 קבוצות" is an ordinary thing to write. */
+      if (h < 6) continue;
+    }
+    if (h > 23 || min > 59) continue;
+
+    const after = wordAfter(text, end);
+    const before = wordBefore(text, m.index);
+    if (COUNT_AFTER.indexOf(after) >= 0 || MONTHS.indexOf(after) >= 0) continue;
+    if (COUNT_BEFORE.indexOf(before) >= 0) continue;
+
+    /* "ב16" hangs its ב on the number; the letter belongs to the sentence, so
+       it has to be cut away with it or the title keeps a stray ב. */
+    const glued = PREFIXES.indexOf(text.charAt(m.index - 1)) >= 0 &&
+                  !/[א-ת]/.test(text.charAt(m.index - 2));
+    out.push({ v: hhmm(h, min), start: glued ? m.index - 1 : m.index, end: end });
+  }
+  return out;
+}
+
+/* "בשעה 8" means eight o'clock, and once the 8 is filed as the time the word
+ * announcing it has no work left to do — leaving it turns the title into
+ * "אימון בשעה". */
+function eatHourWord(text, span){
+  const m = text.slice(0, span.start).match(/([א-ת'׳]+)[\s\-–—]*$/);
+  if (!m) return;
+  const w = stripPrefix(m[1].replace(/['׳]/g, ''));
+  if (w === 'שעה' || w === 'שעות') span.start = m.index;
+}
+
+function findTimes(text){
+  const written = scanWritten(text);
+  const out = written.length ? written : scanBare(text);
+  if (out[0]) eatHourWord(text, out[0]);
 
   /* Swallow the separator sitting between them, so "16:30 עד 18:15" does not
      leave a stranded "עד" behind in the title. */

@@ -20,15 +20,22 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   field below is optional; fill in as many or as few as you like.
 
   What it reads: `יום` + a day name, plus `שבת`, `היום`, `מחר`, `מחרתיים`; one
-  or two times (`16:30`, `16.30`, `16:30-18:15`, `16:30 עד 18:15`), the first
-  being the way there; and a place — anywhere the group has met before, matched
-  exactly, or a phrase starting at a venue word like `מגרש`, `אולם`, `בריכה`.
-  `@` marks a place outright when the guessing gets it wrong.
+  or two times, the first being the way there; and a place — anywhere the group
+  has met before, matched exactly, or a phrase starting at a venue word like
+  `מגרש`, `אולם`, `בריכה`. `@` marks a place outright when the guessing gets it
+  wrong.
+
+  Times take any of `16:00`, `1600` and `16` for four o'clock, `16:30` or
+  `1630` for half past, and `16-18`, `1600-1815` or `16:00 עד 18:15` for both
+  legs at once. `בשעה 8` and `ב16` work too, word and all.
 
   Deliberately cautious, because a wrong guess is worse than none. A bare
   `ראשון` or `שני` is far more often "first" or "second" than a weekday, so
-  only `יום` + name counts. `8.9.26` is a date, not a time. And any field you
-  set by hand stops being guessed at — just that one; the others carry on.
+  only `יום` + name counts. `8.9.26` is a date; `טורניר 2026` is a year;
+  `16 קבוצות` and `לגיל 12` are counts. Bare numbers are read as times only
+  when the line holds no `HH:MM` at all, so `אימון 16:30 עם 12 ילדים` does not
+  send twelve children home. And any field you set by hand stops being guessed
+  at — just that one; the others carry on.
 - **A column per event, running along the page.** The soonest is on the right
   and later ones off to the left — the page is RTL, so time runs the way the
   reader does. Each column names the event and the day, and holds its two legs.
