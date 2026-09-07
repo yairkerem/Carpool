@@ -29,6 +29,10 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   `1630` for half past, and `16-18`, `1600-1815` or `16:00 עד 18:15` for both
   legs at once. `בשעה 8` and `ב16` work too, word and all.
 
+  `2030` is half past eight; `2026` stays the year it is. A bare 20xx is read
+  as a time only when its minutes fall on a multiple of five, which is how
+  people arrange to be collected and is not how years fall.
+
   Deliberately cautious, because a wrong guess is worse than none. A bare
   `ראשון` or `שני` is far more often "first" or "second" than a weekday, so
   only `יום` + name counts. `8.9.26` is a date; `טורניר 2026` is a year;

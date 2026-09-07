@@ -432,7 +432,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 6;
+const APP_VERSION = 7;
 
 const HE_DAYS   = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 
@@ -1021,9 +1021,15 @@ function scanBare(text){
     let h, min;
     if (d.length === 4){
       h = Number(d.slice(0, 2)); min = Number(d.slice(2));
-      /* 2026 is a year far more often than it is 20:26. Eight in the evening
-         written bare is the price; "20:30" still works. */
-      if (d.slice(0, 2) === '20') continue;
+      /* A bare 20xx is the one genuinely ambiguous number: 2030 is half past
+         eight, and 2026 is this season. The minutes decide it. People arrange
+         to be collected on the clock — half past, quarter to, ten past — while
+         a year lands on whatever it lands on, so a 20xx is read as a time only
+         when its minutes are a multiple of five. 2030 and 2045 are times; 2026
+         and 2027 stay in the title as the years they are.
+         The remaining collisions are 2025, 2035 and 2050 — "עונת 2025" is
+         caught by the word in front of it, and the hint shows the rest. */
+      if (d.slice(0, 2) === '20' && min % 5 !== 0) continue;
     } else {
       h = Number(d); min = 0;
       /* Under six is a count, not an event: nobody drives a child anywhere at
