@@ -488,7 +488,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 15;
+const APP_VERSION = 16;
 
 const HE_DAYS   = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 
@@ -1733,6 +1733,30 @@ async function publishedVersion(){
   }
 }
 
+/* An update replaces the page mid-flight, so the fact that one was asked for
+ * has to survive the reload. sessionStorage rather than localStorage: this is
+ * true of one reload, not of the app in general — reopening tomorrow should
+ * not announce an update that happened today. */
+const UPDATED_FLAG = 'cp.updated';
+
+function markUpdating(){
+  try { sessionStorage.setItem(UPDATED_FLAG, '1'); } catch (e) { /* private mode */ }
+}
+
+function takeUpdateFlag(){
+  try {
+    if (sessionStorage.getItem(UPDATED_FLAG) !== '1') return false;
+    sessionStorage.removeItem(UPDATED_FLAG);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function sayUpdated(){
+  say('setup-msg', 'האפליקציה עודכנה לגרסה ' + APP_VERSION + '.', 'ok');
+}
+
 /* A worker that has just been fetched spends a moment installing before it
  * becomes the waiting one. Without this the button would report "up to date"
  * while the new build was mid-install, one second from ready. */
@@ -1767,6 +1791,7 @@ async function checkUpdate(){
       say('setup-msg', 'נמצאה גרסה חדשה. האפליקציה תיטען מחדש…', 'ok');
       /* The reload happens on controllerchange, which fires once the new
          worker takes over — so nothing more to do here. */
+      markUpdating();
       waiting.postMessage({ type: 'SKIP_WAITING' });
       return;
     }
@@ -1786,11 +1811,16 @@ async function checkUpdate(){
       const w = await waitForWaiting(fresh, 25000);
       if (w){
         say('setup-msg', 'מתקין גרסה ' + live + '. האפליקציה תיטען מחדש…', 'ok');
+        markUpdating();
         w.postMessage({ type:'SKIP_WAITING' });
         return;
       }
       /* Installed with nothing to replace — no controller to hand over from. */
-      if (fresh.active && !navigator.serviceWorker.controller){ location.reload(); return; }
+      if (fresh.active && !navigator.serviceWorker.controller){
+        markUpdating();
+        location.reload();
+        return;
+      }
       say('setup-msg', 'גרסה ' + live + ' הותקנה. סגרו את האפליקציה ופתחו שוב.', 'ok');
     } else {
       say('setup-msg', 'האפליקציה מעודכנת (גרסה ' + APP_VERSION + ').', 'ok');
@@ -1856,16 +1886,31 @@ setInterval(() => {
   try { state.me = JSON.parse(localStorage.getItem(LS.me) || 'null'); }
   catch (e) { state.me = null; }
 
+  /* Read before anything else draws: an update reloads the whole page, so the
+     only way the settings screen can report what happened is to be told by
+     the visit that started it. */
+  const updated = takeUpdateFlag();
+
   registerSW();
 
   if (!state.backend || !state.secret || !state.me){
     openSetup('');
+    if (updated) sayUpdated();
     return;
   }
+
   loadBoard();
   show('list');
   render();
   refresh();
+
+  /* Whoever pressed the update button was standing in settings and is owed an
+     answer there, rather than being dropped on the board wondering whether
+     anything happened at all. */
+  if (updated){
+    openSetup('');
+    sayUpdated();
+  }
 })();
 </script>
 </body>
