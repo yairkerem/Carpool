@@ -61,8 +61,10 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   not always fit the squad, and two parents splitting a run is an arrangement
   rather than a clash — so once somebody is on it the button reads *גם אני*.
   You can only ever remove yourself.
-- **One tap to ask for a lift.** *צריכים טרמפ* puts you on the passenger list
-  so the driver knows who to collect.
+- **Green once a leg has two drivers**, with the word to go with the colour, so
+  a board can be read for what still needs somebody rather than for what is
+  already fine. Nobody is stopped from joining a full leg; it only changes how
+  it looks.
 - **A phone number next to the driver**, so the parent waiting in the car park
   can call rather than open WhatsApp.
 - **Share to WhatsApp**, because that is where the group already lives — the
