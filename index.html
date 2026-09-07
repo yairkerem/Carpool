@@ -295,16 +295,22 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
   <div class="field">
     <label for="i-phone">טלפון <span style="font-weight:400;color:var(--muted)">(לא חובה)</span></label>
-    <input id="i-phone" type="tel" dir="ltr" inputmode="tel" autocomplete="tel"
-           placeholder="050-0000000">
+    <!-- Same reason as the address below: "050-0000000" looks like a number
+         someone typed, and a parent skimming an already-filled form has no
+         way to tell it is not theirs. -->
+    <input id="i-phone" type="tel" dir="ltr" inputmode="tel" autocomplete="tel">
     <p class="hint">מאפשר להורה אחר להתקשר אליכם ישירות מהאפליקציה.</p>
   </div>
 
   <div class="field">
     <label for="i-backend">כתובת השרת</label>
+    <!-- No placeholder. A greyed-out address here read as one already filled
+         in, which is the worst thing this particular field could pretend: a
+         parent who thinks it is set never pastes theirs, and the app cannot
+         tell them apart. Empty means empty. What it should contain is said
+         underneath, as words. -->
     <input id="i-backend" type="url" dir="ltr" inputmode="url" autocomplete="off"
-           autocapitalize="off" spellcheck="false"
-           placeholder="https://script.google.com/macros/s/…/exec">
+           autocapitalize="off" spellcheck="false">
     <p class="hint">הכתובת של הקבוצה שלכם, ממי שהקים אותה. מסתיימת ב-<code>/exec</code>.</p>
   </div>
 
@@ -432,7 +438,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 7;
+const APP_VERSION = 8;
 
 const HE_DAYS   = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 
