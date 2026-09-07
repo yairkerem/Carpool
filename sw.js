@@ -8,7 +8,7 @@
  * cross-origin POST, and the guard in fetch() below only ever handles
  * same-origin GETs.
  */
-const CACHE_VERSION = 'v14';
+const CACHE_VERSION = 'v15';
 const CACHE = 'carpool-shell-' + CACHE_VERSION;
 
 const SHELL = [
@@ -25,8 +25,35 @@ const SHELL = [
  * the app can offer the update instead of reloading out from under someone
  * halfway through typing an event. The page sends SKIP_WAITING when the
  * parent accepts. */
+/* Not cache.addAll(SHELL).
+ *
+ * GitHub Pages serves everything through a CDN with a ten-minute lifetime, so
+ * a worker that has only just been fetched can turn round and fill its cache
+ * with the *previous* index.html from an edge node — leaving a new service
+ * worker serving an old app, which is worse than not updating at all.
+ *
+ * Each file is therefore requested under a URL carrying this build's version,
+ * which no edge node has ever seen, and stored under its clean name so that
+ * fetch() can still match a plain request against it.
+ *
+ * The two files the app cannot run without are required; a missing icon is
+ * not worth failing an install over, because a failed install is an update
+ * that never arrives. */
+const REQUIRED = ['./', './index.html'];
+
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)));
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE);
+    await Promise.all(SHELL.map(async url => {
+      try {
+        const res = await fetch(url + '?v=' + CACHE_VERSION, { cache: 'reload' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        await cache.put(url, res);          // stored clean, fetched cache-busted
+      } catch (err) {
+        if (REQUIRED.indexOf(url) >= 0) throw err;
+      }
+    }));
+  })());
 });
 
 self.addEventListener('message', event => {

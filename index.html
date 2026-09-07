@@ -488,7 +488,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 14;
+const APP_VERSION = 15;
 
 const HE_DAYS   = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 
@@ -1566,6 +1566,13 @@ async function registerMe(extra){
     show('list');
     render();
     await refresh();
+  } catch (err) {
+    /* This used to be a finally with no catch. connect() awaits this call and
+       has its own catch, so the first-run path always reported failures — but
+       the identity chooser calls it straight from a button, and there a slow
+       or failed request stopped the spinner and said nothing whatsoever. A
+       button that visibly does nothing is the worst failure this screen has. */
+    say('setup-msg', netMessage(err), 'err');
   } finally {
     busy('b-connect', 'connect-spin', 'connect-label', false,
       state.setupReturn ? 'שמירה' : 'התחברות');
@@ -1766,8 +1773,25 @@ async function checkUpdate(){
 
     const live = await publishedVersion();
     if (live && live > APP_VERSION){
-      say('setup-msg', 'קיימת גרסה ' + live + ', אבל הדפדפן עדיין מגיש את ' +
-        APP_VERSION + '. זה נפתר מעצמו תוך כעשר דקות — נסו שוב אז.', 'err');
+      /* The browser asked the CDN for sw.js and an edge node handed back the
+         copy it has held for the last ten minutes, so no new worker appeared
+         — even though we can see, from a cache-busted read, that a newer one
+         is published.
+         Registering under sw.js?v=<that version> asks for a URL no edge node
+         has ever been asked for, which has to come from the origin. Same
+         scope, so it replaces the registration rather than adding a second.
+         This is what turns "try again in ten minutes" into one tap. */
+      busy('b-check-update', 'update-spin', 'update-label', true, 'מוריד…');
+      const fresh = await navigator.serviceWorker.register('sw.js?v=' + live);
+      const w = await waitForWaiting(fresh, 25000);
+      if (w){
+        say('setup-msg', 'מתקין גרסה ' + live + '. האפליקציה תיטען מחדש…', 'ok');
+        w.postMessage({ type:'SKIP_WAITING' });
+        return;
+      }
+      /* Installed with nothing to replace — no controller to hand over from. */
+      if (fresh.active && !navigator.serviceWorker.controller){ location.reload(); return; }
+      say('setup-msg', 'גרסה ' + live + ' הותקנה. סגרו את האפליקציה ופתחו שוב.', 'ok');
     } else {
       say('setup-msg', 'האפליקציה מעודכנת (גרסה ' + APP_VERSION + ').', 'ok');
     }
