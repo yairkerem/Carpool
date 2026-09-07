@@ -13,8 +13,15 @@ who is bringing the children home at 18:15, and this puts that on one screen.
 
 - **Events, added by hand.** Title, date, time, place, return time, a note.
   Optionally repeated weekly, for a term's worth of training in one go.
-- **Two legs per event, always shown.** A leg with no driver is highlighted,
-  because a return trip nobody has claimed is exactly the one people forget.
+- **A column per event, running along the page.** The soonest is on the right
+  and later ones off to the left — the page is RTL, so time runs the way the
+  reader does. Each column names the event and the day, and holds its two legs.
+- **Two legs per event, always shown, never confusable.** *הלוך* and *חזור* get
+  their own colour, their own icon and their own word: mixing them up is the
+  mistake that strands a child, so no one signal carries it alone. A leg with
+  no driver is ringed in amber, because a trip home nobody has claimed is
+  exactly the one people forget.
+- **Drivers stacked, one to a line**, under the leg they signed up for.
 - **One tap to drive.** *אני אסיע* puts you on a leg; *לא אוכל* takes you off
   again. A leg holds **as many drivers as put themselves on it** — one car does
   not always fit the squad, and two parents splitting a run is an arrangement

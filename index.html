@@ -22,6 +22,10 @@
 :root{
   --bg:#f1f5f9; --card:#fff; --ink:#0f172a; --muted:#64748b; --line:#e2e8f0;
   --brand:#0d9488; --brand-ink:#fff; --brand-soft:#ccfbf1;
+  /* Out and back. Far apart in hue and in lightness, so they stay distinct
+     for a red-green colour-blind reader and in direct sunlight. */
+  --to:#0f766e;   --to-soft:#d3f4ef;  --to-ink:#fff;
+  --back:#6d28d9; --back-soft:#ece5fd; --back-ink:#fff;
   --warn:#b45309; --warn-soft:#fef3c7; --danger:#dc2626;
   --shadow:0 1px 2px rgba(15,23,42,.06), 0 4px 12px rgba(15,23,42,.06);
   --r:14px;
@@ -30,6 +34,8 @@
   :root{
     --bg:#0b1120; --card:#151e2e; --ink:#e8eef7; --muted:#94a3b8; --line:#26334a;
     --brand:#2dd4bf; --brand-ink:#04241f; --brand-soft:#123a36;
+    --to:#2dd4bf;   --to-soft:#0e3b36;  --to-ink:#04241f;
+    --back:#a78bfa; --back-soft:#2a2150; --back-ink:#1b1440;
     --warn:#fbbf24; --warn-soft:#3a2f10; --danger:#f87171;
     --shadow:0 1px 2px rgba(0,0,0,.4), 0 6px 16px rgba(0,0,0,.35);
   }
@@ -88,42 +94,71 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
   padding:6px 12px;background:var(--brand);color:var(--brand-ink);font-weight:600;
 }
 
-/* ---------- day heading ---------- */
-.day{
-  margin:20px 2px 8px;font-size:13px;font-weight:700;letter-spacing:.02em;
-  color:var(--muted);
+/* ---------- the board: a column per event, along the page ---------- */
+/* Nothing here says right-to-left. The document is RTL, so a flex row starts
+   at the right on its own, and the horizontal scroll starts there too — the
+   soonest event under the reader's thumb, later ones off to the left. */
+.board{
+  display:flex; align-items:flex-start; gap:12px;
+  overflow-x:auto; overflow-y:visible;
+  /* Bleeds through the screen's side padding, so the next column is cut off
+     by the edge of the phone rather than by an invisible margin. */
+  margin-inline:-14px; padding:2px 14px 16px;
+  scroll-snap-type:x proximity;
+  /* Without this the snap aligns a column to the padding box and tucks the
+     first one 14px under the screen edge — the bleed eats its own margin. */
+  scroll-padding-inline:14px;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:thin;
 }
-.day:first-child{margin-top:4px}
-
-/* ---------- event card ---------- */
-.ev{
-  background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);
-  margin-bottom:12px;overflow:hidden;
+/* Sized so the next column always peeks in at the edge. That sliver is the
+   only thing telling a phone user there is more board to the left. */
+.col{
+  flex:0 0 clamp(230px, 76vw, 290px);
+  scroll-snap-align:start;
+  background:var(--card); border-radius:var(--r); box-shadow:var(--shadow);
+  overflow:hidden;
 }
-.ev-head{display:flex;align-items:flex-start;gap:10px;padding:12px 14px 10px}
-.ev-head .txt{flex:1;min-width:0}
-.ev-head h2{font-size:17px;overflow-wrap:anywhere}
-.ev-sub{font-size:13px;color:var(--muted);margin-top:2px;overflow-wrap:anywhere}
-.ev-note{
-  font-size:13px;color:var(--muted);margin-top:6px;padding-inline-start:9px;
+.col-head{display:flex;align-items:flex-start;gap:6px;padding:12px 12px 10px}
+.col-head .txt{flex:1;min-width:0}
+.col-head h2{font-size:16px;overflow-wrap:anywhere}
+.col-acts{display:flex;flex:none;margin:-4px -6px 0 0}
+.col-acts .iconbtn{width:30px;height:30px;font-size:15px}
+.col-when{font-size:12px;font-weight:700;color:var(--muted);margin-top:3px}
+.col-where{font-size:12px;color:var(--muted);margin-top:3px;overflow-wrap:anywhere}
+.col-note{
+  font-size:12px;color:var(--muted);margin-top:6px;padding-inline-start:8px;
   border-inline-start:3px solid var(--line);overflow-wrap:anywhere;
 }
-.ev-head .iconbtn{width:32px;height:32px;font-size:16px;margin:-2px -4px 0 0}
 
 /* ---------- one leg ---------- */
-.leg{border-top:1px solid var(--line);padding:10px 14px}
-.leg.open{background:var(--warn-soft)}
-.leg-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.dir{
-  font-size:13px;font-weight:700;flex:none;
-  display:flex;align-items:center;gap:5px;min-width:74px;
+/* Out and back get their own colour, icon and word. Three signals, because
+   confusing the two is the failure that leaves a child at a pitch. */
+.leg{padding:10px 12px;border-top:1px solid var(--line)}
+.leg.to  { --leg:var(--to);   --leg-soft:var(--to-soft);   --leg-ink:var(--to-ink); }
+.leg.back{ --leg:var(--back); --leg-soft:var(--back-soft); --leg-ink:var(--back-ink); }
+.leg-head{
+  display:flex;align-items:center;gap:6px;
+  font-size:13px;color:var(--leg);
+  margin:-10px -12px 9px;padding:7px 12px;
+  background:var(--leg-soft);
+  border-inline-start:4px solid var(--leg);
 }
-.dir .t{font-weight:500;color:var(--muted)}
-/* Wraps, because a leg can carry several drivers and three names on a narrow
-   phone must go to a second line rather than squeeze the button off the row. */
-.driver{display:flex;align-items:center;gap:6px;flex:1 1 auto;min-width:0;
-        flex-wrap:wrap;font-size:14px}
-.driver.none{color:var(--warn);font-weight:600}
+.leg-ico{font-size:14px;line-height:1}
+.leg-t{margin-inline-start:auto;font-weight:700;font-variant-numeric:tabular-nums}
+
+/* One driver to a line: several parents on a leg is ordinary now, and four
+   names in a row read as one crowded sentence. */
+.drivers{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+.drow{display:flex;align-items:center;gap:6px;max-width:100%}
+.nodriver{color:var(--warn);font-weight:700;font-size:13px}
+/* The unclaimed leg has to carry across a board being scanned at arm's
+   length, but tinting the whole block would drown the leg's own colour —
+   so the marker sits around the empty space where a name should be. */
+.leg.open .drivers{
+  width:100%;padding:9px 11px;border-radius:10px;
+  background:var(--warn-soft);border:1px dashed var(--warn);
+}
 .call{text-decoration:none;font-size:15px;line-height:1;padding:2px}
 .chip{
   display:inline-flex;align-items:center;gap:5px;flex:none;
@@ -136,25 +171,27 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 }
 .chip.solid{background:var(--c,var(--muted));color:#fff}
 .chip.solid::before{display:none}
+/* Full width inside its column, and in the leg's own colour, so the tap that
+   puts you on the outward run never looks like the one that brings them home. */
 .act{
-  flex:none;border:1px solid transparent;border-radius:10px;cursor:pointer;
-  padding:7px 13px;font-size:14px;font-weight:600;
-  background:var(--brand);color:var(--brand-ink);
+  display:block;width:100%;margin-top:9px;
+  border:1px solid transparent;border-radius:10px;cursor:pointer;
+  padding:9px 13px;font-size:14px;font-weight:700;
+  background:var(--leg,var(--brand));color:var(--leg-ink,var(--brand-ink));
 }
 .act.ghost{background:transparent;color:var(--muted);border-color:var(--line)}
 .act:disabled{opacity:.5}
 
 .riders{
   display:flex;align-items:center;gap:6px;flex-wrap:wrap;
-  margin-top:8px;padding-inline-start:74px;
+  margin-top:9px;
 }
 .riders .lbl{font-size:12px;color:var(--muted);flex:none}
 .join{
   border:1px dashed var(--line);background:transparent;color:var(--muted);
   border-radius:999px;padding:3px 11px;font-size:13px;cursor:pointer;
 }
-.join.on{border-style:solid;border-color:var(--brand);color:var(--brand);font-weight:600}
-@media (max-width:400px){ .riders{padding-inline-start:0} }
+.join.on{border-style:solid;border-color:var(--leg,var(--brand));color:var(--leg,var(--brand));font-weight:600}
 
 /* ---------- empty / fab ---------- */
 .empty{text-align:center;color:var(--muted);padding:56px 20px}
@@ -386,7 +423,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 2;
+const APP_VERSION = 3;
 
 const HE_DAYS   = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 
@@ -637,95 +674,97 @@ function render(){
     return;
   }
 
-  let day = null;
-  for (const ev of events){
-    if (ev.date !== day){
-      day = ev.date;
-      list.appendChild(el('h2', 'day', dayLabel(day)));
-    }
-    list.appendChild(eventCard(ev));
-  }
+  /* One column per event, laid out along the page rather than down it. The
+     page is RTL, so a plain flex row already puts the soonest event on the
+     right and later ones away to the left — the direction a Hebrew reader
+     starts from. No day headings: with a column each, the date belongs in
+     the column's own head. */
+  const board = el('div', 'board');
+  for (const ev of events) board.appendChild(eventCol(ev));
+  list.appendChild(board);
 }
 
-function eventCard(ev){
-  const card = el('article', 'ev');
+function eventCol(ev){
+  const col = el('article', 'col');
 
-  const head = el('div', 'ev-head');
+  const head = el('header', 'col-head');
   const txt = el('div', 'txt');
   txt.appendChild(el('h2', null, ev.title));
-
-  const bits = [];
-  if (ev.time) bits.push(ev.time);
-  if (ev.place) bits.push(ev.place);
-  if (bits.length) txt.appendChild(el('div', 'ev-sub', bits.join(' · ')));
-  if (ev.note) txt.appendChild(el('div', 'ev-note', ev.note));
+  txt.appendChild(el('div', 'col-when', dayLabel(ev.date)));
+  if (ev.place) txt.appendChild(el('div', 'col-where', '📍 ' + ev.place));
+  if (ev.note) txt.appendChild(el('div', 'col-note', ev.note));
   head.appendChild(txt);
 
+  const acts = el('div', 'col-acts');
   const share = el('button', 'iconbtn', '⤴');
   share.setAttribute('aria-label', 'שיתוף');
   share.title = 'שיתוף';
   share.onclick = () => shareEvent(ev);
-  head.appendChild(share);
+  acts.appendChild(share);
 
   const edit = el('button', 'iconbtn', '✎');
   edit.setAttribute('aria-label', 'עריכה');
   edit.title = 'עריכה';
   edit.onclick = () => openEdit(ev);
-  head.appendChild(edit);
+  acts.appendChild(edit);
+  head.appendChild(acts);
 
-  card.appendChild(head);
-  card.appendChild(legRow(ev, 'to'));
-  card.appendChild(legRow(ev, 'back'));
-  return card;
+  col.appendChild(head);
+  col.appendChild(legBlock(ev, 'to'));
+  col.appendChild(legBlock(ev, 'back'));
+  return col;
 }
 
 /* Both legs are always drawn, even when nobody has filled in a time. An event
    a child has to get home from is exactly the one people forget, and a leg
-   that is not on the screen is a leg nobody claims. */
-function legRow(ev, leg){
+   that is not on the screen is a leg nobody claims.
+ *
+ * The two are told apart three ways over, because mixing them up is the one
+ * mistake that strands a child: their own colour down the edge, their own
+ * icon, and their own word. Colour alone would not do it — a good number of
+ * fathers cannot tell teal from violet, and everyone is reading this in a
+ * car park in the sun. */
+function legBlock(ev, leg){
   const isTo = leg === 'to';
   const drivers = (isTo ? ev.toDriver : ev.backDriver) || [];
   const riders = (isTo ? ev.toRiders : ev.backRiders) || [];
   const time = isTo ? ev.time : ev.backTime;
   const iDrive = !!(state.me && drivers.indexOf(state.me.id) >= 0);
 
-  const box = el('div', 'leg' + (drivers.length ? '' : ' open'));
-  const row = el('div', 'leg-row');
+  const box = el('section', 'leg ' + (isTo ? 'to' : 'back') +
+    (drivers.length ? '' : ' open'));
 
-  /* A car and a house rather than two arrows: an arrow means the opposite
-     thing either side of a right-to-left line, and half the people reading
-     this are doing it one-handed in a car park. */
-  const dir = el('div', 'dir');
-  dir.appendChild(el('span', null, isTo ? '🚗 הלוך' : '🏠 חזור'));
-  if (time) dir.appendChild(el('span', 't', time));
-  row.appendChild(dir);
+  const head = el('div', 'leg-head');
+  head.appendChild(el('span', 'leg-ico', isTo ? '🚗' : '🏠'));
+  head.appendChild(el('b', null, isTo ? 'הלוך' : 'חזור'));
+  if (time) head.appendChild(el('span', 'leg-t', time));
+  box.appendChild(head);
 
-  /* Several drivers, not one. One car does not always fit the squad, and two
-     parents splitting a run is an arrangement rather than a clash — so joining
-     a leg somebody is already on is a normal thing to do, and the button stays
-     on offer instead of disappearing once the first person taps it. */
-  const who = el('div', 'driver' + (drivers.length ? '' : ' none'));
+  /* Drivers stacked, one to a line. Several parents on a leg is normal now,
+     and a row of chips makes four names look like one crowded sentence. */
+  const who = el('div', 'drivers');
   if (!drivers.length){
-    who.appendChild(el('span', null, 'אין נהג'));
+    who.appendChild(el('div', 'nodriver', 'אין נהג'));
   } else {
     for (const id of drivers){
+      const line = el('div', 'drow');
       const p = parentById(id);
-      who.appendChild(personChip(p, true));
+      line.appendChild(personChip(p, true));
       if (!isMe(id) && p.phone){
         const call = el('a', 'call', '📞');
         call.href = 'tel:' + p.phone;
         call.setAttribute('aria-label', 'התקשרות ל' + p.name);
-        who.appendChild(call);
+        line.appendChild(call);
       }
+      who.appendChild(line);
     }
   }
-  row.appendChild(who);
+  box.appendChild(who);
 
   const act = el('button', 'act' + (iDrive ? ' ghost' : ''));
   act.textContent = iDrive ? 'לא אוכל' : (drivers.length ? 'גם אני' : 'אני אסיע');
   act.onclick = () => legAction(act, ev, leg, iDrive ? 'release' : 'claim');
-  row.appendChild(act);
-  box.appendChild(row);
+  box.appendChild(act);
 
   /* Who needs this lift. The driver is not listed — they are in the car by
      definition, and the backend keeps them off the list for the same reason. */
