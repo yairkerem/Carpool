@@ -13,11 +13,22 @@ who is bringing the children home at 18:15, and this puts that on one screen.
 
 - **Events, added by hand.** Title, date, time, place, return time, a note.
   Optionally repeated weekly, for a term's worth of training in one go.
-- **The title sets the date.** Type *אימון יום שלישי* and the date jumps to the
-  next Tuesday. Only `יום` + a day name counts, plus `שבת`, `היום`, `מחר` and
-  `מחרתיים` — a bare `ראשון` or `שני` is far more often "first" or "second"
-  than a weekday, and guessing wrong moves an event by days. It stops guessing
-  the moment you set the date yourself.
+- **One line is enough.** Type the event the way you would say it in the group
+  — *אימון כדורגל יום שלישי 16:30-18:15 במגרש הדשא* — and the day, both times
+  and the place fill themselves in. Then they come out of the title, so the
+  card reads *אימון כדורגל* rather than repeating itself three times. Every
+  field below is optional; fill in as many or as few as you like.
+
+  What it reads: `יום` + a day name, plus `שבת`, `היום`, `מחר`, `מחרתיים`; one
+  or two times (`16:30`, `16.30`, `16:30-18:15`, `16:30 עד 18:15`), the first
+  being the way there; and a place — anywhere the group has met before, matched
+  exactly, or a phrase starting at a venue word like `מגרש`, `אולם`, `בריכה`.
+  `@` marks a place outright when the guessing gets it wrong.
+
+  Deliberately cautious, because a wrong guess is worse than none. A bare
+  `ראשון` or `שני` is far more often "first" or "second" than a weekday, so
+  only `יום` + name counts. `8.9.26` is a date, not a time. And any field you
+  set by hand stops being guessed at — just that one; the others carry on.
 - **A column per event, running along the page.** The soonest is on the right
   and later ones off to the left — the page is RTL, so time runs the way the
   reader does. Each column names the event and the day, and holds its two legs.

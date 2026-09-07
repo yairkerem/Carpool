@@ -375,13 +375,15 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
   <div class="field">
     <label for="e-title">מה האירוע</label>
     <input id="e-title" type="text" dir="auto" enterkeyhint="next"
-           placeholder="אימון כדורגל / חוג / מסיבה">
+           placeholder="אימון כדורגל יום שלישי 16:30-18:15 במגרש הדשא">
+    <p class="hint">אפשר לכתוב הכול בשורה אחת — יום, שעות ומקום ימולאו לבד.
+      אפשר גם למלא רק את מה שרוצים.</p>
+    <p class="hint auto" id="title-read" hidden></p>
   </div>
 
   <div class="field">
     <label for="e-date">תאריך</label>
     <input id="e-date" type="date">
-    <p class="hint auto" id="date-auto" hidden></p>
   </div>
 
   <div class="two">
@@ -430,7 +432,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 4;
+const APP_VERSION = 5;
 
 const HE_DAYS   = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 
@@ -874,95 +876,300 @@ function shareEvent(ev){
   window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
 }
 
-/* ---- reading the day out of the title -------------------------- */
-/* People title an event the way they say it — "אימון יום שלישי" — and then
- * set the date to the same thing by hand. This reads the day back out and
- * fills the date in.
- *
- * Deliberately conservative. Every Hebrew weekday name is also an ordinary
- * ordinal: ראשון is "first", שני is "second", and "אימון ראשון" means the
- * first training session, not Sunday. So a bare day name is ignored and only
- * "יום" + name counts — the one form nobody writes by accident. שבת needs no
+/* ================================================================
+   Reading an event out of one line of text
+
+   The fields below the title are all optional. A parent types the event the
+   way they would say it in the group — "אימון כדורגל יום שלישי 16:30-18:15
+   במגרש הדשא" — and the day, the two times and the place are lifted out into
+   their own fields. Whatever is understood is then taken out of the title,
+   so the card reads "אימון כדורגל" rather than repeating itself three times.
+
+   Everything here is a guess shown to the parent, never a silent one: the
+   fields fill in visibly, a line underneath says what was understood, and any
+   field they touch themselves stops being guessed at.
+   ================================================================ */
+
+/* Words with their positions, so a match can be cut back out of the title.
+ * Split rather than matched with boundaries: \b does not know about Hebrew,
+ * and a lookbehind would fail to *parse* on older iOS Safari, which takes the
+ * whole app down rather than just this feature. */
+function hebTokens(text){
+  const out = [];
+  const re = /[א-ת'׳]+/g;
+  let m;
+  while ((m = re.exec(text))){
+    out.push({ w: m[0].replace(/['׳]/g, ''), start: m.index, end: m.index + m[0].length });
+  }
+  return out;
+}
+
+/* ---- the day -------------------------------------------------- */
+/* Conservative on purpose. Every Hebrew weekday name is also an ordinary
+ * ordinal — ראשון is "first", שני is "second" — so "אימון ראשון" is the first
+ * session of the season, not Sunday. Only "יום" + name counts. שבת needs no
  * such guard, being a noun of its own. */
 const DOW_WORDS = {
   'ראשון':0, 'שני':1, 'שלישי':2, 'רביעי':3, 'חמישי':4, 'שישי':5, 'שבת':6,
-  /* יום א׳ … יום ו׳. ש is left out on purpose: it could be שני, שלישי,
-     שישי or שבת, and a wrong guess moves the event by days. */
+  /* יום א׳ … יום ו׳. ש is left out: it could be שני, שלישי, שישי or שבת,
+     and a wrong guess moves the event by days. */
   'א':0, 'ב':1, 'ג':2, 'ד':3, 'ה':4, 'ו':5
 };
 const YOM = ['יום','ביום','ליום','ויום','מיום','וביום','שביום'];
 const SHABBAT = ['שבת','בשבת','לשבת','ושבת','משבת','השבת','ובשבת'];
+const RELATIVE = { 'היום':0, 'מחר':1, 'מחרתיים':2 };
 
-/* Split on anything that is not a Hebrew letter or a geresh, so a word is
- * matched whole. No \b — it does not know about Hebrew — and no lookbehind,
- * which older iOS Safari fails to *parse*, taking the whole app with it. */
-function hebWords(text){
-  return String(text || '')
-    .split(/[^א-ת'׳]+/)
-    .filter(Boolean)
-    .map(w => w.replace(/['׳]/g, ''));
-}
-
-/* The next occurrence counts today. Somebody adding "אימון יום שני" on a
+/* The next occurrence counts today: somebody adding "אימון יום שני" on a
  * Monday morning means this evening, not a week from now. */
 function nextWeekday(dow){
   const t = todayIso();
   return shiftIso(t, (dow - fromIso(t).getDay() + 7) % 7);
 }
 
-/** @returns {?{iso:string, label:string}} */
-function dayFromTitle(text){
-  const words = hebWords(text);
-  for (let i = 0; i < words.length; i++){
-    const w = words[i];
-    if (w === 'היום')     return { iso: todayIso(), label: 'היום' };
-    if (w === 'מחר')      return { iso: shiftIso(todayIso(), 1), label: 'מחר' };
-    if (w === 'מחרתיים')  return { iso: shiftIso(todayIso(), 2), label: 'מחרתיים' };
-    if (SHABBAT.indexOf(w) >= 0) return { iso: nextWeekday(6), label: 'שבת' };
+function findDay(text){
+  const tk = hebTokens(text);
+  for (let i = 0; i < tk.length; i++){
+    const t = tk[i];
 
-    if (YOM.indexOf(w) >= 0){
-      const next = words[i + 1];
-      if (next && Object.prototype.hasOwnProperty.call(DOW_WORDS, next)){
-        const dow = DOW_WORDS[next];
-        return {
-          iso: nextWeekday(dow),
-          label: dow === 6 ? 'שבת' : 'יום ' + HE_DAYS[dow]
-        };
-      }
+    if (Object.prototype.hasOwnProperty.call(RELATIVE, t.w)){
+      return { iso: shiftIso(todayIso(), RELATIVE[t.w]), label: t.w,
+               start: t.start, end: t.end };
+    }
+    if (SHABBAT.indexOf(t.w) >= 0){
+      return { iso: nextWeekday(6), label: 'שבת', start: t.start, end: t.end };
+    }
+    if (YOM.indexOf(t.w) >= 0 && tk[i + 1] &&
+        Object.prototype.hasOwnProperty.call(DOW_WORDS, tk[i + 1].w)){
+      const dow = DOW_WORDS[tk[i + 1].w];
+      return {
+        iso: nextWeekday(dow),
+        label: dow === 6 ? 'שבת' : 'יום ' + HE_DAYS[dow],
+        start: t.start, end: tk[i + 1].end
+      };
     }
   }
   return null;
 }
 
-/* What the title said last time we looked, and whether the date has since
- * been set by hand. Two rules keep this from being annoying: it only acts
- * when the day in the title *changes*, so re-opening an event or fixing a
- * typo moves nothing; and it stops for good once the parent touches the date
- * themselves, because at that point they have said what they want. */
-let titleDay = { last: null, touched: false };
+/* ---- the times ------------------------------------------------ */
+/* First time found is the way there, second the way back — which is the order
+ * people say them in, and the order a range is written in. */
+function findTimes(text){
+  const out = [];
+  const re = /(\d{1,2})[:.](\d{2})/g;
+  let m;
+  while ((m = re.exec(text))){
+    const h = Number(m[1]), min = Number(m[2]);
+    if (h > 23 || min > 59) continue;
+    /* "8.9.26" is a date, not twenty-six past nine. A dot or a digit on either
+       side gives it away — both sides, because the match can land on the tail
+       of a dotted date as easily as the head of one. charAt rather than a
+       lookbehind, which older iOS Safari cannot parse. */
+    const after = text.charAt(m.index + m[0].length);
+    const before = text.charAt(m.index - 1);
+    if (after === '.' || (after >= '0' && after <= '9')) continue;
+    if (before === '.' || (before >= '0' && before <= '9')) continue;
 
-function watchTitle(){
-  if (titleDay.touched) return;
+    out.push({
+      v: String(h).padStart(2, '0') + ':' + m[2],
+      start: m.index, end: m.index + m[0].length
+    });
+    if (out.length === 2) break;
+  }
 
-  /* Keyed on the day that was named, not on the date it resolves to. Keying
-     on the date would re-fire simply because a day has passed since the
-     event was written, and quietly walk it forward a week. */
-  const found = dayFromTitle($('e-title').value);
-  const key = found ? found.label : '';
-  if (key === titleDay.last) return;
-  titleDay.last = key;
-  if (!found) return;
+  /* Swallow the separator sitting between them, so "16:30 עד 18:15" does not
+     leave a stranded "עד" behind in the title. */
+  if (out.length === 2){
+    const between = text.slice(out[0].end, out[1].start);
+    if (/^[\s\-–—]*(עד|ועד|ל|לבין|עד ל)?[\s\-–—]*$/.test(between)) out[0].end = out[1].start;
+  }
+  return out;
+}
 
-  $('e-date').value = found.iso;
-  say('date-auto', 'התאריך נקבע לפי "' + found.label + '" שבשם — ' + ddmm(found.iso));
-  $('date-auto').className = 'hint auto';
+/* ---- the place ------------------------------------------------ */
+/* Two ways, precise first. Anywhere this group has met before is matched
+ * exactly — which means the second time you use a venue, typing its name in
+ * the title is enough. The word list is only for the first time. */
+function knownPlaces(){
+  const seen = {};
+  for (const e of state.events) if (e.place) seen[e.place.trim()] = true;
+  return Object.keys(seen).sort((a, b) => b.length - a.length);   // longest wins
+}
 
-  /* A field that changes on its own has to be seen changing, or it reads as
-     a bug the one time it guesses wrong. */
-  const box = $('e-date');
+const PLACE_WORDS = [
+  'מגרש','מגרשי','מגרשים','אולם','אולמות','אצטדיון','בריכה','מתנס','מתנ',
+  'היכל','פארק','גן','גני','בית','ביה','מרכז','קאנטרי','מועדון','סטודיו',
+  'חדר','כיתה','קניון','חוף','יער','מוזיאון','תיאטרון','ספריה','ספרייה',
+  'רחוב','שדרות','כביש','תחנת','חניון'
+];
+/* Where a venue phrase stops. Without these, "במגרש הדשא עם הקבוצה" would
+ * put the whole tail into the place field. */
+const PLACE_STOP = ['עם','אחרי','לפני','בשביל','כדי','וגם','אבל','ואז','להביא'];
+const PREFIXES = 'בלמהוכש';
+
+function stripPrefix(w){
+  return (w.length > 2 && PREFIXES.indexOf(w.charAt(0)) >= 0) ? w.slice(1) : w;
+}
+
+function findPlace(text, cuts){
+  /* An explicit marker beats every heuristic, and gives someone a way to say
+     "this bit is the place" when the guessing gets it wrong. */
+  const covered = i => cuts.some(c => i >= c.start && i < c.end);
+  /* A place runs to the end of the line, or to the first thing already
+     understood as something else — otherwise "@ היכל התרבות מחר 18:00" files
+     the day and the time as part of the venue's name. */
+  const endsAt = from => cuts.reduce(
+    (end, c) => (c.start > from && c.start < end) ? c.start : end, text.length);
+
+  const at = text.indexOf('@');
+  if (at >= 0){
+    const end = endsAt(at);
+    const rest = text.slice(at + 1, end).trim();
+    if (rest) return { value: rest, start: at, end: end };
+  }
+
+  for (const p of knownPlaces()){
+    const i = text.indexOf(p);
+    if (i < 0 || covered(i)) continue;
+    /* "במגרש הדשא" holds the venue "מגרש הדשא" with a ב stuck to the front.
+       The letter belongs to the sentence, so it has to be cut away with the
+       venue — leave it and the title keeps a stray "ב". */
+    const glued = PREFIXES.indexOf(text.charAt(i - 1)) >= 0 &&
+                  !/[א-ת]/.test(text.charAt(i - 2));
+    return { value: p, start: glued ? i - 1 : i, end: i + p.length };
+  }
+
+  const tk = hebTokens(text);
+  for (let i = 0; i < tk.length; i++){
+    if (covered(tk[i].start)) continue;
+    if (PLACE_WORDS.indexOf(stripPrefix(tk[i].w)) < 0) continue;
+
+    let end = text.length;
+    for (let j = i + 1; j < tk.length; j++){
+      if (PLACE_STOP.indexOf(tk[j].w) >= 0 || covered(tk[j].start)){ end = tk[j].start; break; }
+    }
+    /* The leading ב of "במגרש" belongs to the sentence, not to the venue. */
+    const raw = text.slice(tk[i].start, end).trim();
+    const value = (tk[i].w !== stripPrefix(tk[i].w)) ? raw.slice(1) : raw;
+    if (value) return { value: value, start: tk[i].start, end: tk[i].start + raw.length };
+  }
+  return null;
+}
+
+/* ---- putting it together -------------------------------------- */
+function stripSpans(text, spans){
+  const sorted = spans.slice().sort((a, b) => a.start - b.start);
+  const keep = [];
+  let at = 0;
+  for (const sp of sorted){
+    if (sp.start > at) keep.push(text.slice(at, sp.start));
+    at = Math.max(at, sp.end);
+  }
+  keep.push(text.slice(at));
+  return keep.join(' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*[,\-–—]\s*(?=[,\-–—]|$)/g, '')
+    .replace(/^[\s,\-–—]+/, '')
+    .replace(/[\s,\-–—]+$/, '')
+    .trim();
+}
+
+function parseTitle(text){
+  const cuts = [];
+  const out = { day:null, time:'', back:'', place:'', span:{} };
+
+  const day = findDay(text);
+  if (day){ out.day = day; out.span.day = day; cuts.push(day); }
+
+  const times = findTimes(text);
+  if (times[0]){ out.time = times[0].v; out.span.time = times[0]; cuts.push(times[0]); }
+  if (times[1]){ out.back = times[1].v; out.span.back = times[1]; cuts.push(times[1]); }
+
+  const place = findPlace(text, cuts);
+  if (place){ out.place = place.value; out.span.place = place; cuts.push(place); }
+
+  out.clean = stripSpans(text, cuts);
+  return out;
+}
+
+/* What was understood last time, and which fields the parent has since set
+ * themselves. Two rules keep this from being a nuisance: a field is only
+ * written when what the title says about it *changes*, so reopening an event
+ * or fixing a typo moves nothing; and a field stops being guessed at the
+ * moment its owner touches it, because at that point they have said what
+ * they want. */
+let auto = { last:{}, touched:{} };
+
+function resetAuto(text){
+  const p = parseTitle(text || '');
+  auto = {
+    last: { day: p.day ? p.day.label : '', time: p.time, back: p.back, place: p.place },
+    touched: {}
+  };
+}
+
+/* `mark` is what gets remembered, `value` is what gets written. They differ
+ * for the day: remember the word the title used, write the date it resolves
+ * to. Remember the date instead and a week later the very same title reads as
+ * a change, walking the event forward on sight. */
+function applyAuto(key, inputId, value, mark){
+  const token = (mark === undefined) ? value : mark;
+  if (token === auto.last[key]) return false;
+  auto.last[key] = token;
+  if (!value || auto.touched[key]) return false;
+  $(inputId).value = value;
+  flash(inputId);
+  return true;
+}
+
+function flash(id){
+  const box = $(id);
   box.classList.remove('flash');
   void box.offsetWidth;                 // restart the animation
   box.classList.add('flash');
+}
+
+function watchTitle(){
+  const p = parseTitle($('e-title').value);
+
+  applyAuto('day', 'e-date', p.day ? p.day.iso : '', p.day ? p.day.label : '');
+  applyAuto('time', 'e-time', p.time);
+  applyAuto('back', 'e-back', p.back);
+  applyAuto('place', 'e-place', p.place);
+
+  const bits = [];
+  if (p.day && !auto.touched.day) bits.push(p.day.label + ' ' + ddmm(p.day.iso));
+  if (p.time && !auto.touched.time) bits.push(p.time + (p.back && !auto.touched.back ? '–' + p.back : ''));
+  else if (p.back && !auto.touched.back) bits.push('חזרה ' + p.back);
+  if (p.place && !auto.touched.place) bits.push(p.place);
+
+  say('title-read', bits.length ? 'הובן מהשם: ' + bits.join(' · ') : '');
+  $('title-read').className = 'hint auto';
+}
+
+/* Taking the understood words out of the title is left until the parent
+ * leaves the field. Doing it while they type would move the cursor out from
+ * under them mid-word. */
+function tidyTitle(){
+  const box = $('e-title');
+  const p = parseTitle(box.value);
+
+  /* Only words the fields actually took are removed. Stripping everything the
+     parser merely *recognised* would rename an event nobody edited: open one
+     called "אימון יום שני במגרש הדשא", tab past the title, and it would come
+     back as "אימון" while the date and place fields still held their own,
+     different values — the words gone from the title and recorded nowhere. */
+  const taken = [];
+  if (p.span.day   && $('e-date').value  === p.day.iso) taken.push(p.span.day);
+  if (p.span.time  && $('e-time').value  === p.time)    taken.push(p.span.time);
+  if (p.span.back  && $('e-back').value  === p.back)    taken.push(p.span.back);
+  if (p.span.place && $('e-place').value === p.place)   taken.push(p.span.place);
+  if (!taken.length) return;
+
+  /* If the whole line was understood there is no name left, and an event with
+     no name is worse than a repetitive one. */
+  const clean = stripSpans(box.value, taken);
+  if (clean && clean !== box.value) box.value = clean;
 }
 
 /* ---- the editor ----------------------------------------------- */
@@ -979,12 +1186,12 @@ function openEdit(ev){
   $('repeat-field').hidden = !!ev;      // repeating is a thing you do when creating
   $('delete-row').hidden = !ev;
   say('edit-msg', '');
-  say('date-auto', '');
+  say('title-read', '');
 
   /* Seeded with whatever the title already says, so opening an event whose
-     name mentions a day does not move it on sight. Only a change speaks. */
-  const seed = dayFromTitle(ev ? ev.title : '');
-  titleDay = { last: seed ? seed.label : '', touched: false };
+     name mentions a day or a place does not move it on sight. Only a change
+     to what the title says speaks. */
+  resetAuto(ev ? ev.title : '');
 
   show('edit');
   if (!ev) $('e-title').focus();
@@ -1253,12 +1460,19 @@ $('b-save').onclick = saveEvent;
 $('b-delete').onclick = deleteEvent;
 
 $('e-title').addEventListener('input', watchTitle);
-/* Setting .value from script fires no input event, so this only ever hears
-   the parent — which is exactly when the guessing should stop. */
-$('e-date').addEventListener('input', () => {
-  titleDay.touched = true;
-  say('date-auto', '');
-});
+$('e-title').addEventListener('blur', tidyTitle);
+
+/* Setting .value from script fires no input event, so these only ever hear
+   the parent — which is exactly when the guessing should stop for that one
+   field. Touching the date does not stop the place being read, and vice
+   versa: they are separate guesses and separate corrections. */
+[['e-date','day'], ['e-time','time'], ['e-back','back'], ['e-place','place']]
+  .forEach(pair => {
+    $(pair[0]).addEventListener('input', () => {
+      auto.touched[pair[1]] = true;
+      watchTitle();                     // the hint should stop claiming it
+    });
+  });
 
 $('i-secret').addEventListener('keydown', e => { if (e.key === 'Enter') connect(); });
 
