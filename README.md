@@ -13,6 +13,11 @@ who is bringing the children home at 18:15, and this puts that on one screen.
 
 - **Events, added by hand.** Title, date, time, place, return time, a note.
   Optionally repeated weekly, for a term's worth of training in one go.
+- **The title sets the date.** Type *אימון יום שלישי* and the date jumps to the
+  next Tuesday. Only `יום` + a day name counts, plus `שבת`, `היום`, `מחר` and
+  `מחרתיים` — a bare `ראשון` or `שני` is far more often "first" or "second"
+  than a weekday, and guessing wrong moves an event by days. It stops guessing
+  the moment you set the date yourself.
 - **A column per event, running along the page.** The soonest is on the right
   and later ones off to the left — the page is RTL, so time runs the way the
   reader does. Each column names the event and the day, and holds its two legs.

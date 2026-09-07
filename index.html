@@ -218,6 +218,12 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 .two{display:flex;gap:10px}
 .two>*{flex:1;min-width:0}
 .hint{font-size:13px;color:var(--muted);margin:6px 0 0}
+.hint.auto{color:var(--brand);font-weight:600}
+/* A field that fills itself in has to be seen doing it, or the one time the
+   guess is wrong it reads as the app losing the date. */
+@keyframes dateflash{from{background:var(--brand-soft)} to{background:var(--card)}}
+.flash{animation:dateflash 1.1s ease-out}
+@media (prefers-reduced-motion: reduce){ .flash{animation:none} }
 .hint.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;direction:ltr;text-align:start}
 fieldset{border:0;padding:0;margin:0 0 16px}
 fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
@@ -375,6 +381,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
   <div class="field">
     <label for="e-date">תאריך</label>
     <input id="e-date" type="date">
+    <p class="hint auto" id="date-auto" hidden></p>
   </div>
 
   <div class="two">
@@ -423,7 +430,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 3;
+const APP_VERSION = 4;
 
 const HE_DAYS   = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 
@@ -867,6 +874,97 @@ function shareEvent(ev){
   window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
 }
 
+/* ---- reading the day out of the title -------------------------- */
+/* People title an event the way they say it — "אימון יום שלישי" — and then
+ * set the date to the same thing by hand. This reads the day back out and
+ * fills the date in.
+ *
+ * Deliberately conservative. Every Hebrew weekday name is also an ordinary
+ * ordinal: ראשון is "first", שני is "second", and "אימון ראשון" means the
+ * first training session, not Sunday. So a bare day name is ignored and only
+ * "יום" + name counts — the one form nobody writes by accident. שבת needs no
+ * such guard, being a noun of its own. */
+const DOW_WORDS = {
+  'ראשון':0, 'שני':1, 'שלישי':2, 'רביעי':3, 'חמישי':4, 'שישי':5, 'שבת':6,
+  /* יום א׳ … יום ו׳. ש is left out on purpose: it could be שני, שלישי,
+     שישי or שבת, and a wrong guess moves the event by days. */
+  'א':0, 'ב':1, 'ג':2, 'ד':3, 'ה':4, 'ו':5
+};
+const YOM = ['יום','ביום','ליום','ויום','מיום','וביום','שביום'];
+const SHABBAT = ['שבת','בשבת','לשבת','ושבת','משבת','השבת','ובשבת'];
+
+/* Split on anything that is not a Hebrew letter or a geresh, so a word is
+ * matched whole. No \b — it does not know about Hebrew — and no lookbehind,
+ * which older iOS Safari fails to *parse*, taking the whole app with it. */
+function hebWords(text){
+  return String(text || '')
+    .split(/[^א-ת'׳]+/)
+    .filter(Boolean)
+    .map(w => w.replace(/['׳]/g, ''));
+}
+
+/* The next occurrence counts today. Somebody adding "אימון יום שני" on a
+ * Monday morning means this evening, not a week from now. */
+function nextWeekday(dow){
+  const t = todayIso();
+  return shiftIso(t, (dow - fromIso(t).getDay() + 7) % 7);
+}
+
+/** @returns {?{iso:string, label:string}} */
+function dayFromTitle(text){
+  const words = hebWords(text);
+  for (let i = 0; i < words.length; i++){
+    const w = words[i];
+    if (w === 'היום')     return { iso: todayIso(), label: 'היום' };
+    if (w === 'מחר')      return { iso: shiftIso(todayIso(), 1), label: 'מחר' };
+    if (w === 'מחרתיים')  return { iso: shiftIso(todayIso(), 2), label: 'מחרתיים' };
+    if (SHABBAT.indexOf(w) >= 0) return { iso: nextWeekday(6), label: 'שבת' };
+
+    if (YOM.indexOf(w) >= 0){
+      const next = words[i + 1];
+      if (next && Object.prototype.hasOwnProperty.call(DOW_WORDS, next)){
+        const dow = DOW_WORDS[next];
+        return {
+          iso: nextWeekday(dow),
+          label: dow === 6 ? 'שבת' : 'יום ' + HE_DAYS[dow]
+        };
+      }
+    }
+  }
+  return null;
+}
+
+/* What the title said last time we looked, and whether the date has since
+ * been set by hand. Two rules keep this from being annoying: it only acts
+ * when the day in the title *changes*, so re-opening an event or fixing a
+ * typo moves nothing; and it stops for good once the parent touches the date
+ * themselves, because at that point they have said what they want. */
+let titleDay = { last: null, touched: false };
+
+function watchTitle(){
+  if (titleDay.touched) return;
+
+  /* Keyed on the day that was named, not on the date it resolves to. Keying
+     on the date would re-fire simply because a day has passed since the
+     event was written, and quietly walk it forward a week. */
+  const found = dayFromTitle($('e-title').value);
+  const key = found ? found.label : '';
+  if (key === titleDay.last) return;
+  titleDay.last = key;
+  if (!found) return;
+
+  $('e-date').value = found.iso;
+  say('date-auto', 'התאריך נקבע לפי "' + found.label + '" שבשם — ' + ddmm(found.iso));
+  $('date-auto').className = 'hint auto';
+
+  /* A field that changes on its own has to be seen changing, or it reads as
+     a bug the one time it guesses wrong. */
+  const box = $('e-date');
+  box.classList.remove('flash');
+  void box.offsetWidth;                 // restart the animation
+  box.classList.add('flash');
+}
+
 /* ---- the editor ----------------------------------------------- */
 function openEdit(ev){
   state.editing = ev || null;
@@ -881,6 +979,13 @@ function openEdit(ev){
   $('repeat-field').hidden = !!ev;      // repeating is a thing you do when creating
   $('delete-row').hidden = !ev;
   say('edit-msg', '');
+  say('date-auto', '');
+
+  /* Seeded with whatever the title already says, so opening an event whose
+     name mentions a day does not move it on sight. Only a change speaks. */
+  const seed = dayFromTitle(ev ? ev.title : '');
+  titleDay = { last: seed ? seed.label : '', touched: false };
+
   show('edit');
   if (!ev) $('e-title').focus();
 }
@@ -1146,6 +1251,14 @@ $('b-update').onclick = applyUpdate;
 $('b-edit-back').onclick = () => { show('list'); render(); };
 $('b-save').onclick = saveEvent;
 $('b-delete').onclick = deleteEvent;
+
+$('e-title').addEventListener('input', watchTitle);
+/* Setting .value from script fires no input event, so this only ever hears
+   the parent — which is exactly when the guessing should stop. */
+$('e-date').addEventListener('input', () => {
+  titleDay.touched = true;
+  say('date-auto', '');
+});
 
 $('i-secret').addEventListener('keydown', e => { if (e.key === 'Enter') connect(); });
 
