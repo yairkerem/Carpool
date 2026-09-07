@@ -51,10 +51,13 @@ function dailyReminder() {
   const due = state().events.filter(e => e.date === tomorrow);
   if (!due.length) return;
 
+  /* .length, not truthiness: a leg's drivers are a list now, and an empty
+     array is truthy — testing the list itself would report every unclaimed
+     leg as covered and send nothing on exactly the night it matters. */
   const open = [];
   due.forEach(function (e) {
-    if (!e.toDriver) open.push(e.title + ' — הלוך' + (e.time ? ' ' + e.time : ''));
-    if (!e.backDriver) open.push(e.title + ' — חזור' + (e.backTime ? ' ' + e.backTime : ''));
+    if (!e.toDriver.length) open.push(e.title + ' — הלוך' + (e.time ? ' ' + e.time : ''));
+    if (!e.backDriver.length) open.push(e.title + ' — חזור' + (e.backTime ? ' ' + e.backTime : ''));
   });
   if (!open.length) return;                 // every leg covered: say nothing
 

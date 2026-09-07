@@ -25,7 +25,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 1;
+const BACKEND_VERSION = 2;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -243,8 +243,8 @@ function state() {
       place: e.place,
       backTime: e.backTime,
       note: e.note,
-      toDriver: e.toDriver,
-      backDriver: e.backDriver,
+      toDriver: parseDrivers(e.toDriver),
+      backDriver: parseDrivers(e.backDriver),
       toRiders: parseList(e.toRiders),
       backRiders: parseList(e.backRiders),
       createdBy: e.createdBy,
@@ -273,6 +273,16 @@ function parseList(raw) {
   } catch (err) {
     return [];
   }
+}
+
+/* A leg can have several drivers — two cars for a squad, or one parent out and
+ * another back. v1 stored a single id in this cell, so a value that is not a
+ * JSON array is read as the one driver it used to mean. That keeps a board
+ * written before this change from losing whoever was on it. */
+function parseDrivers(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return [];
+  return s.charAt(0) === '[' ? parseList(s) : [s];
 }
 
 /* Registering is the whole of signing in. A parent types their name once; the
@@ -325,8 +335,8 @@ function saveEvent(ev) {
       place: String(ev.place || '').trim(),
       backTime: clean(ev.backTime),
       note: String(ev.note || '').trim(),
-      toDriver: existing ? existing.toDriver : '',
-      backDriver: existing ? existing.backDriver : '',
+      toDriver: existing ? existing.toDriver : '[]',
+      backDriver: existing ? existing.backDriver : '[]',
       toRiders: existing ? existing.toRiders : '[]',
       backRiders: existing ? existing.backRiders : '[]',
       createdBy: existing ? existing.createdBy : String(ev.createdBy || ''),
@@ -357,9 +367,13 @@ function removeEvent(id) {
   });
 }
 
-/* The one action the app exists for. Refusing rather than overwriting matters:
- * the loser of the race gets told who actually got it, and the app shows that
- * instead of pretending the tap worked. */
+/* The one action the app exists for. Adding, not taking: a leg holds as many
+ * drivers as put themselves on it, because one car does not always fit the
+ * squad and two parents splitting a run is a normal arrangement rather than a
+ * conflict. Nobody is ever refused, and nobody displaces anybody.
+ *
+ * Still under the lock. Two parents tapping in the same second are appending
+ * to the same cell, and without it one of the two writes is simply lost. */
 function claim(id, leg, parentId) {
   const col = LEGS[leg];
   if (!col) return { ok: false, error: 'bad leg' };
@@ -370,10 +384,9 @@ function claim(id, leg, parentId) {
     const found = readAll(sh, EVENT_COLS).filter(e => e.id === id && e.deleted !== '1')[0];
     if (!found) return { ok: false, error: 'not found' };
 
-    if (found[col] && found[col] !== parentId) {
-      return { ok: false, error: 'taken', driver: found[col] };
-    }
-    found[col] = parentId;
+    const drivers = parseDrivers(found[col]);
+    if (drivers.indexOf(parentId) < 0) drivers.push(parentId);
+    found[col] = JSON.stringify(drivers);
 
     /* A driver is in the car by definition, so they come off the passenger
        list — otherwise they show up twice in the row of who is riding. */
@@ -386,19 +399,19 @@ function claim(id, leg, parentId) {
   });
 }
 
-/* Only the driver can stand down, and only from their own leg — a parent
- * cannot un-assign somebody else. */
+/* Standing down removes you and only you. There is no call for taking someone
+ * else off a leg, and a filter by id means the app cannot ask for it. */
 function release(id, leg, parentId) {
   const col = LEGS[leg];
   if (!col) return { ok: false, error: 'bad leg' };
+  if (!parentId) return { ok: false, error: 'no parent' };
 
   return withLock(function () {
     const sh = sheet('Events', EVENT_COLS);
     const found = readAll(sh, EVENT_COLS).filter(e => e.id === id && e.deleted !== '1')[0];
     if (!found) return { ok: false, error: 'not found' };
-    if (found[col] !== parentId) return { ok: false, error: 'not yours', driver: found[col] };
 
-    found[col] = '';
+    found[col] = JSON.stringify(parseDrivers(found[col]).filter(p => p !== parentId));
     found.updatedAt = new Date().toISOString();
     writeRow(sh, EVENT_COLS, found);
     return { ok: true };

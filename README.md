@@ -15,8 +15,11 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   Optionally repeated weekly, for a term's worth of training in one go.
 - **Two legs per event, always shown.** A leg with no driver is highlighted,
   because a return trip nobody has claimed is exactly the one people forget.
-- **One tap to drive.** *אני אסיע* claims a leg; *לא אוכל* stands back down.
-  Only the driver can release their own leg.
+- **One tap to drive.** *אני אסיע* puts you on a leg; *לא אוכל* takes you off
+  again. A leg holds **as many drivers as put themselves on it** — one car does
+  not always fit the squad, and two parents splitting a run is an arrangement
+  rather than a clash — so once somebody is on it the button reads *גם אני*.
+  You can only ever remove yourself.
 - **One tap to ask for a lift.** *צריכים טרמפ* puts you on the passenger list
   so the driver knows who to collect.
 - **A phone number next to the driver**, so the parent waiting in the car park

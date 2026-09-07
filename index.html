@@ -119,8 +119,12 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
   display:flex;align-items:center;gap:5px;min-width:74px;
 }
 .dir .t{font-weight:500;color:var(--muted)}
-.driver{display:flex;align-items:center;gap:6px;flex:1;min-width:0;font-size:14px}
+/* Wraps, because a leg can carry several drivers and three names on a narrow
+   phone must go to a second line rather than squeeze the button off the row. */
+.driver{display:flex;align-items:center;gap:6px;flex:1 1 auto;min-width:0;
+        flex-wrap:wrap;font-size:14px}
 .driver.none{color:var(--warn);font-weight:600}
+.call{text-decoration:none;font-size:15px;line-height:1;padding:2px}
 .chip{
   display:inline-flex;align-items:center;gap:5px;flex:none;
   padding:3px 10px;border-radius:999px;font-size:13px;font-weight:600;
@@ -382,11 +386,9 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 1;
+const APP_VERSION = 2;
 
 const HE_DAYS   = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
-const HE_MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי',
-                   'אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
 
 /* One colour per parent, so a card can be read without reading any names.
    Ten is more than any carpool has and every one of them takes white text. */
@@ -455,17 +457,31 @@ function shiftIso(s, n){
   return iso(d);
 }
 
-/* "היום" reads better than the date on the one day it matters most. */
+/** 07/09 — always two digits each, always day first. */
+function ddmm(s){
+  const d = fromIso(s);
+  return String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth() + 1).padStart(2,'0');
+}
+
+/* Weekday and DD/MM together. The weekday is what a parent actually plans by
+ * — "Thursday" answers the question, 07/09 does not — and the number is what
+ * they check it against. "היום" and "מחר" still lead, on the two days where
+ * naming the weekday would make someone count.
+ *
+ * The year appears only when the date is far enough out that leaving it off
+ * would be ambiguous, which for a carpool is almost never. */
 function dayLabel(s){
   const t = todayIso();
-  if (s === t) return 'היום';
-  if (s === shiftIso(t, 1)) return 'מחר';
-  if (s === shiftIso(t, 2)) return 'מחרתיים';
   const d = fromIso(s);
+  const near = s < shiftIso(t, 250);
+  const date = ddmm(s) + (near ? '' : '/' + d.getFullYear());
+
+  if (s === t) return 'היום · ' + date;
+  if (s === shiftIso(t, 1)) return 'מחר · ' + date;
+  if (s === shiftIso(t, 2)) return 'מחרתיים · ' + date;
+
   const name = d.getDay() === 6 ? 'שבת' : 'יום ' + HE_DAYS[d.getDay()];
-  const near = s < shiftIso(t, 250);      // a date inside the year needs no year
-  return name + ', ' + d.getDate() + ' ב' + HE_MONTHS[d.getMonth()] +
-         (near ? '' : ' ' + d.getFullYear());
+  return name + ' · ' + date;
 }
 
 /* ---- backend -------------------------------------------------- */
@@ -668,11 +684,12 @@ function eventCard(ev){
    that is not on the screen is a leg nobody claims. */
 function legRow(ev, leg){
   const isTo = leg === 'to';
-  const driverId = isTo ? ev.toDriver : ev.backDriver;
+  const drivers = (isTo ? ev.toDriver : ev.backDriver) || [];
   const riders = (isTo ? ev.toRiders : ev.backRiders) || [];
   const time = isTo ? ev.time : ev.backTime;
+  const iDrive = !!(state.me && drivers.indexOf(state.me.id) >= 0);
 
-  const box = el('div', 'leg' + (driverId ? '' : ' open'));
+  const box = el('div', 'leg' + (drivers.length ? '' : ' open'));
   const row = el('div', 'leg-row');
 
   /* A car and a house rather than two arrows: an arrow means the opposite
@@ -683,33 +700,30 @@ function legRow(ev, leg){
   if (time) dir.appendChild(el('span', 't', time));
   row.appendChild(dir);
 
-  const who = el('div', 'driver' + (driverId ? '' : ' none'));
-  if (driverId){
-    const p = parentById(driverId);
-    who.appendChild(personChip(p, true));
-    if (isMe(driverId)) who.appendChild(el('span', null, 'אתם מסיעים'));
-    else if (p.phone){
-      const call = el('a', null, '📞');
-      call.href = 'tel:' + p.phone;
-      call.style.textDecoration = 'none';
-      call.setAttribute('aria-label', 'התקשרות ל' + p.name);
-      who.appendChild(call);
-    }
-  } else {
+  /* Several drivers, not one. One car does not always fit the squad, and two
+     parents splitting a run is an arrangement rather than a clash — so joining
+     a leg somebody is already on is a normal thing to do, and the button stays
+     on offer instead of disappearing once the first person taps it. */
+  const who = el('div', 'driver' + (drivers.length ? '' : ' none'));
+  if (!drivers.length){
     who.appendChild(el('span', null, 'אין נהג'));
+  } else {
+    for (const id of drivers){
+      const p = parentById(id);
+      who.appendChild(personChip(p, true));
+      if (!isMe(id) && p.phone){
+        const call = el('a', 'call', '📞');
+        call.href = 'tel:' + p.phone;
+        call.setAttribute('aria-label', 'התקשרות ל' + p.name);
+        who.appendChild(call);
+      }
+    }
   }
   row.appendChild(who);
 
-  const act = el('button', 'act' + (isMe(driverId) ? ' ghost' : ''));
-  if (isMe(driverId)){
-    act.textContent = 'לא אוכל';
-    act.onclick = () => legAction(act, ev, leg, 'release');
-  } else if (!driverId){
-    act.textContent = 'אני אסיע';
-    act.onclick = () => legAction(act, ev, leg, 'claim');
-  } else {
-    act.hidden = true;
-  }
+  const act = el('button', 'act' + (iDrive ? ' ghost' : ''));
+  act.textContent = iDrive ? 'לא אוכל' : (drivers.length ? 'גם אני' : 'אני אסיע');
+  act.onclick = () => legAction(act, ev, leg, iDrive ? 'release' : 'claim');
   row.appendChild(act);
   box.appendChild(row);
 
@@ -719,7 +733,7 @@ function legRow(ev, leg){
   if (riders.length) bar.appendChild(el('span', 'lbl', 'נוסעים:'));
   for (const id of riders) bar.appendChild(personChip(parentById(id), false));
 
-  if (state.me && !isMe(driverId)){
+  if (state.me && !iDrive){
     const joined = riders.indexOf(state.me.id) >= 0;
     const join = el('button', 'join' + (joined ? ' on' : ''),
       joined ? '✓ נוסעים' : '+ צריכים טרמפ');
@@ -741,13 +755,17 @@ async function legAction(btn, ev, leg, action, riding){
   const isTo = leg === 'to';
   const driverKey = isTo ? 'toDriver' : 'backDriver';
   const riderKey = isTo ? 'toRiders' : 'backRiders';
-  const before = { driver: ev[driverKey], riders: (ev[riderKey] || []).slice() };
+  const before = {
+    drivers: (ev[driverKey] || []).slice(),
+    riders: (ev[riderKey] || []).slice()
+  };
 
   if (action === 'claim'){
-    ev[driverKey] = state.me.id;
+    const on = ev[driverKey] || [];
+    if (on.indexOf(state.me.id) < 0) ev[driverKey] = on.concat([state.me.id]);
     ev[riderKey] = (ev[riderKey] || []).filter(p => p !== state.me.id);
   } else if (action === 'release'){
-    ev[driverKey] = '';
+    ev[driverKey] = (ev[driverKey] || []).filter(p => p !== state.me.id);
   } else {
     const others = (ev[riderKey] || []).filter(p => p !== state.me.id);
     ev[riderKey] = riding ? others.concat([state.me.id]) : others;
@@ -761,17 +779,14 @@ async function legAction(btn, ev, leg, action, riding){
     }, 20000);
 
     if (!r.ok){
-      ev[driverKey] = before.driver;
+      ev[driverKey] = before.drivers;
       ev[riderKey] = before.riders;
       render();
       if (rejected(r.error)) return;
       /* The reload has to come first and the message second: a successful
          refresh clears the banner, so saying it before reloading means the
          explanation flashes up and disappears in the same breath. */
-      if (r.error === 'taken'){
-        await refresh(true);
-        banner(parentById(r.driver).name + ' הספיק/ה לשבץ את עצמו/ה לנסיעה הזו.');
-      } else if (r.error === 'not found'){
+      if (r.error === 'not found'){
         await refresh(true);
         banner('האירוע כבר לא קיים — מישהו מחק אותו.');
       } else {
@@ -783,7 +798,7 @@ async function legAction(btn, ev, leg, action, riding){
     saveBoard();
     banner('');
   } catch (err) {
-    ev[driverKey] = before.driver;
+    ev[driverKey] = before.drivers;
     ev[riderKey] = before.riders;
     render();
     banner(netMessage(err) + ' השיבוץ לא נשמר.');
@@ -794,13 +809,15 @@ async function legAction(btn, ev, leg, action, riding){
 /* A carpool lives in a WhatsApp group whatever else it has, so the app hands
    over a message rather than pretending it can replace one. */
 function shareEvent(ev){
-  const lines = [ev.title, dayLabel(ev.date) + (ev.time ? ' · ' + ev.time : '')];
+  const names = ids => (ids && ids.length)
+    ? ids.map(id => parentById(id).name).join(', ')
+    : 'אין נהג';
+
+  const lines = [ev.title, dayLabel(ev.date)];
   if (ev.place) lines.push('📍 ' + ev.place);
   lines.push('');
-  lines.push('⬅ הלוך' + (ev.time ? ' ' + ev.time : '') + ': ' +
-    (ev.toDriver ? parentById(ev.toDriver).name : 'אין נהג'));
-  lines.push('➡ חזור' + (ev.backTime ? ' ' + ev.backTime : '') + ': ' +
-    (ev.backDriver ? parentById(ev.backDriver).name : 'אין נהג'));
+  lines.push('🚗 הלוך' + (ev.time ? ' ' + ev.time : '') + ': ' + names(ev.toDriver));
+  lines.push('🏠 חזור' + (ev.backTime ? ' ' + ev.backTime : '') + ': ' + names(ev.backDriver));
 
   const text = lines.join('\n');
   if (navigator.share){
