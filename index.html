@@ -379,6 +379,26 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 }
 .place-add button:active{background:var(--line)}
 
+/* The invitation, one message to a row. Each row is a whole button: what it
+   is, the value about to be sent, and a tick once it has gone. */
+.share-steps{margin-top:12px}
+#share-list{display:flex;flex-direction:column;gap:8px;margin:10px 0}
+.share-step{
+  display:flex;align-items:center;gap:10px;width:100%;text-align:start;
+  background:var(--card);border:1px solid var(--line);border-radius:11px;
+  padding:11px 12px;font-size:14px;color:var(--ink);cursor:pointer;
+}
+.share-step .step-label{white-space:nowrap}
+.share-step .step-val{
+  flex:1;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;
+  direction:ltr;text-align:start;color:var(--muted);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.share-step .step-mark{margin-inline-start:auto;color:var(--muted)}
+.share-step.sent{border-color:var(--done);background:var(--done-soft)}
+.share-step.sent .step-mark{color:var(--done)}
+.share-step:active{background:var(--line)}
+
 .msg{padding:11px 13px;border-radius:11px;font-size:14px;margin-bottom:14px;overflow-wrap:anywhere}
 .msg.err{background:#fee2e2;color:#991b1b}
 .msg.ok{background:var(--brand-soft);color:var(--brand)}
@@ -589,8 +609,16 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
       <button type="button" id="b-new-group">יצירת קבוצה</button>
       <button type="button" id="b-forget" hidden>התנתקות מהקבוצה</button>
     </div>
-    <p class="hint" id="share-note" hidden>ההזמנה כוללת את כתובת האפליקציה, קוד
-      הקבוצה והסיסמה המשותפת — שלחו רק למי שאמור/ה להיות בקבוצה.</p>
+
+    <div id="share-steps" class="share-steps" hidden>
+      <p class="hint">שלוש הודעות לאותו הורה, בזו אחר זו. הן מופרדות כדי שאפשר
+        יהיה להעתיק את הקוד ואת הסיסמה בלחיצה ארוכה — יש אפליקציות שלא מאפשרות
+        לסמן רק חלק מהודעה.</p>
+      <div id="share-list"></div>
+      <button type="button" id="b-share-all" class="linkish">או: הכל בהודעה אחת</button>
+      <p class="hint">ההזמנה כוללת את כתובת האפליקציה, קוד הקבוצה והסיסמה
+        המשותפת — שלחו רק למי שאמור/ה להיות בקבוצה.</p>
+    </div>
   </div>
 
   <!-- Always on screen, connected or not. A parent stuck on this page with an
@@ -784,7 +812,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 43;
+const APP_VERSION = 44;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1482,7 +1510,7 @@ function shareGroup(){
     'בכניסה הראשונה ממלאים שם, צבע, ואת שני אלה.'
   ].join('\n');
 
-  shareText(text);
+  shareText(text).catch(() => {});
 }
 
 /* Everything a parent needs to join the group this phone is looking at: where
@@ -1492,27 +1520,52 @@ function shareGroup(){
  * line under the button says so.
  *
  * Shared from settings rather than the board: it is the group you are in that
- * gets shared, and settings is where the rest of that group's business is. */
-function shareJoin(){
-  if (!state.groupId || !state.secret) return;
+ * gets shared, and settings is where the rest of that group's business is.
+ *
+ * THREE MESSAGES, NOT ONE. The receiving parent taps the link but has to
+ * *copy* the code and the secret, and a chat app copies a whole message: put
+ * all three in one and they can lift out none of them, because "קוד הקבוצה:
+ * kx7m2p" pasted whole is not a code. So the second and third messages are
+ * the bare values and nothing else, and the first one says they are coming. */
+function shareParts(){
+  return [
+    { key:'link', label:'1. הקישור לאפליקציה', text: [
+        'הצטרפו לקבוצת ההסעות "' + (state.group || 'הסעות') + '":',
+        location.origin + location.pathname,
+        '',
+        'בכניסה הראשונה ממלאים שם וצבע, ואת קוד הקבוצה והסיסמה — שתי ההודעות ' +
+        'הבאות. אפשר להעתיק כל אחת מהן בלחיצה ארוכה.'
+      ].join('\n') },
+    { key:'code',   label:'2. קוד הקבוצה',      text: state.groupId },
+    { key:'secret', label:'3. הסיסמה המשותפת',  text: state.secret }
+  ];
+}
+
+/* Still offered whole, because not every app is WhatsApp and three sends to
+ * the same person is three sends. Its own wording, not the first message's:
+ * that one announces two messages to come, and here there are none. */
+function shareJoinAll(){
   shareText([
     'הצטרפו לקבוצת ההסעות "' + (state.group || 'הסעות') + '":',
-    '',
     location.origin + location.pathname,
     '',
     'קוד הקבוצה: ' + state.groupId,
     'סיסמה משותפת: ' + state.secret,
     '',
     'בכניסה הראשונה ממלאים שם, צבע, ואת שני אלה.'
-  ].join('\n'));
+  ].join('\n')).catch(() => {});
 }
 
 /* The phone's own share sheet where there is one, because it knows which apps
  * this parent actually uses. Where there is not, WhatsApp directly — that is
- * where it was going anyway. */
+ * where it was going anyway.
+ *
+ * Returns the share's own promise: a cancelled share rejects, and the step
+ * list needs that to know it was not sent. */
 function shareText(text){
-  if (navigator.share){ navigator.share({ text: text }).catch(() => {}); return; }
+  if (navigator.share) return navigator.share({ text: text });
   window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+  return Promise.resolve();
 }
 
 /* Straight into joining what was just made — the host is its first member and
@@ -1818,7 +1871,7 @@ function shareEvent(ev){
   lines.push('🚗 הלוך' + (ev.time ? ' ' + ev.time : '') + ': ' + names(ev.toDriver));
   lines.push('🏠 חזור' + (ev.backTime ? ' ' + ev.backTime : '') + ': ' + names(ev.backDriver));
 
-  shareText(lines.join('\n'));
+  shareText(lines.join('\n')).catch(() => {});
 }
 
 /* ================================================================
@@ -2445,7 +2498,9 @@ function openSetup(message){
      Leaving a group you are not in makes no sense either; creating one always
      does. */
   $('b-share-join').hidden = !connected;
-  $('share-note').hidden = !connected;
+  /* Folded away again each time the screen opens. A list still showing ticks
+     from an earlier visit would say somebody had been invited. */
+  $('share-steps').hidden = true;
   $('b-join-group').hidden = !connected;
   $('b-forget').hidden = !connected;
   $('groups-note').textContent = !connected ? ''
@@ -2732,6 +2787,43 @@ function paintPlacePicks(){
   }
 }
 
+/* Which of the three have gone out this visit. Only a tick beside a step —
+ * the app cannot know whether they reached the right chat, and pretending
+ * otherwise would be worse than saying nothing. */
+let shareDone = {};
+
+function paintShareSteps(){
+  const box = $('share-list');
+  box.textContent = '';
+  for (const part of shareParts()){
+    const b = el('button', 'share-step' + (shareDone[part.key] ? ' sent' : ''));
+    b.type = 'button';
+    b.appendChild(el('span', 'step-label', part.label));
+    /* The value itself, so the sender can see what is about to go — and read
+       it out if the parent is standing next to them anyway. */
+    if (part.key !== 'link') b.appendChild(el('span', 'step-val', part.text));
+    b.appendChild(el('b', 'step-mark', shareDone[part.key] ? '✓' : '⤴'));
+    b.onclick = () => {
+      shareText(part.text)
+        .then(() => { shareDone[part.key] = true; paintShareSteps(); })
+        .catch(() => {});          // cancelled: it did not go, so do not tick
+    };
+    box.appendChild(b);
+  }
+}
+
+function toggleShareSteps(){
+  const box = $('share-steps');
+  if (box.hidden){
+    shareDone = {};
+    paintShareSteps();
+    box.hidden = false;
+    box.scrollIntoView({ block:'nearest' });
+  } else {
+    box.hidden = true;
+  }
+}
+
 /* Sends only what changed, and says nothing itself.
  *
  * Returns the list of what it did — empty when there was nothing to send, or
@@ -3002,7 +3094,8 @@ $('i-place-new').addEventListener('keydown', e => {
   if (e.key === 'Enter'){ e.preventDefault(); addPlace(); }
 });
 
-$('b-share-join').onclick = shareJoin;
+$('b-share-join').onclick = toggleShareSteps;
+$('b-share-all').onclick = shareJoinAll;
 $('b-join-group').onclick = joinGroup;
 $('b-new-group').onclick = openNewGroup;
 $('b-ng-back').onclick = () => { show(state.list.length ? 'list' : 'setup'); render(); };

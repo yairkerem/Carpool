@@ -90,9 +90,15 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   app writes the message, it does not try to replace the conversation. An
   event goes out as who is driving which leg; a whole group goes out from
   settings as an invitation — the app's address, the group's code and its
-  secret, which is everything a new parent has to type. Both use the phone's
-  own share sheet where there is one, since it knows which apps that parent
-  actually uses.
+  secret, which is everything a new parent has to type.
+
+  The invitation is **three messages, not one**. The parent receiving it taps
+  the link but has to *copy* the other two, and a chat app copies a whole
+  message rather than the part you dragged over — so `קוד הקבוצה: kx7m2p`
+  pasted whole is not a code. The second and third messages are therefore the
+  bare values and nothing else, and the first says they are coming. Sent one
+  at a time, each ticked once it has gone, with all-in-one still there for
+  apps where it does not matter.
 - **An admin, to keep the list honest.** The first parent to register is the
   admin — whoever set the group up, without being told to claim anything — and
   can remove a member from settings. Removing frees every future leg that
