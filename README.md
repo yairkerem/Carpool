@@ -61,7 +61,8 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   not always fit the squad, and two parents splitting a run is an arrangement
   rather than a clash — so once somebody is on it the button reads *גם אני*.
   You can only ever remove yourself.
-- **Green once a leg has two drivers**, with the word to go with the colour, so
+- **Green once a leg has enough drivers** — how many is the group's own, set by
+  its admin — with the word to go with the colour, so
   a board can be read for what still needs somebody rather than for what is
   already fine. Nobody is stopped from joining a full leg; it only changes how
   it looks.
@@ -76,10 +77,12 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   next Tuesday is worse than not removing them at all. Past rides are left
   exactly as they were: a record of who drove, not a plan that can go wrong.
 
-  It is housekeeping rather than a lock. Everyone shares one secret, so a
-  removed parent who kept it could register again under a new name. To shut
-  somebody out properly, change `SHARED_SECRET` and give the new one to
-  everybody else.
+  The admin also sets how many drivers a leg wants before it counts as sorted.
+
+  Removing is housekeeping rather than a lock. Everyone in a group shares one
+  secret, so a removed parent who kept it could register again under a new
+  name. To shut somebody out properly, change that group's secret and give the
+  new one to everybody else.
 - Works offline on the last loaded board, and installs to a home screen on
   both Android and iOS.
 
@@ -88,15 +91,20 @@ who is bringing the children home at 18:15, and this puts that on one screen.
 **The app** is a PWA — `index.html`, `sw.js` and `manifest.webmanifest`,
 served as static files. One page, vanilla JavaScript, no build step.
 
-**The backend** is a Google Apps Script Web App with a Google Sheet behind it,
-**one per carpool group**. It holds the shared secret and the board. Every
-parent in the group points their phone at the same address, which is the point:
-unlike a private family app, this one exists so that several households see and
-edit the same thing.
+**The backend** is a Google Apps Script Web App with a Google Sheet behind it.
+One deployment can hold **several groups** — each with its own code, secret,
+board, members and admin, and none able to see another. A phone can belong to
+as many as it likes and switches between them from the name at the top.
 
-The Sheet is deliberately plain — two tabs, `Events` and `Parents` — so anyone
+Every parent in a group points their phone at the same address, which is the
+point: unlike a private family app, this one exists so that several households
+see and edit the same thing.
+
+The Sheet is deliberately plain — `Groups`, `Events` and `Parents` — so anyone
 who can open it can read the board or fix something the app will not let them
-fix.
+fix. Separating one group from another is the `group` column and one rule: every
+read goes through a helper that filters by the group the request authenticated
+as, and nothing reads across that line.
 
 The script is **bound to that spreadsheet**, and [`appsscript.json`](appsscript.json)
 pins its scope to `spreadsheets.currentonly`. So setting it up asks the owner

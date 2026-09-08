@@ -182,6 +182,54 @@ What they cannot do is keep driving under the old one. To shut somebody out
 properly, change `SHARED_SECRET` in Script Properties and send the new one to
 everybody else.
 
+## More than one group on one deployment
+
+This deployment can host several carpools — a football team and a swimming
+club, say — without anybody else repeating the Google setup. Each group has its
+own board, its own members, its own admin and its own settings, and no group
+can see another.
+
+**Turn it on.** Add a third Script Property:
+
+| Property | Value |
+|---|---|
+| `HOST_SECRET` | another long random string, different from any group's secret |
+
+That one is yours alone. It is what stops somebody who has the app's address
+from filling your Drive with groups, so it never goes in a WhatsApp message.
+Without it this deployment simply hosts the one group it already has.
+
+**Make a group.** There is no screen for it yet; it is one request. Paste this
+into the browser console on any page, filling in the three values:
+
+```js
+await fetch('YOUR_EXEC_URL', {
+  method: 'POST',
+  headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+  body: JSON.stringify({
+    action: 'newGroup',
+    hostSecret: 'YOUR_HOST_SECRET',
+    name: 'חוג שחייה',
+    secret: 'a-long-secret-for-this-group'
+  })
+}).then(r => r.json())
+```
+
+It answers with a six-character code. Send the parents of that group three
+things: the app's address, the code, and that group's secret. They enter all
+three on the setup screen.
+
+**Joining more than one.** A parent with children in two carpools taps the
+group's name at the top of the board and chooses **+ הצטרפות לקבוצה**. Both
+then live on the same phone, and the same name at the top switches between
+them. Each keeps its own board, its own colour for you, and its own admin.
+
+**The group you already had** needs nothing done to it. The first time the new
+backend runs it gives that group a home in the `Groups` tab, using the name and
+secret it already had, and stamps every existing row with it. Phones that have
+not updated yet carry on working — a request with no code means the group that
+was here before there were codes.
+
 ## Optional: the nightly nudge
 
 A carpool fails quietly — nobody claimed tomorrow morning and nobody noticed.

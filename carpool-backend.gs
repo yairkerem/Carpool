@@ -2,9 +2,10 @@
  * Carpool backend  —  Google Apps Script
  * Deploy as: Web app  |  Execute as: Me  |  Who has access: Anyone
  *
- * One deployment per carpool group. Everyone in the group points the app at
- * this one URL, so unlike a private family backend this one is deliberately
- * shared: the whole point is that the parents see the same board.
+ * One deployment, one or many carpool groups. Everyone in a group points the
+ * app at this one URL and joins with a code and that group's secret, so unlike
+ * a private family backend this one is deliberately shared: the whole point is
+ * that the parents see the same board. Groups cannot see each other.
  *
  * THIS SCRIPT MUST LIVE INSIDE ITS SPREADSHEET — created from the sheet's own
  * Extensions > Apps Script, not as a standalone project. That is not a style
@@ -15,9 +16,12 @@
  * can ask for that single file and nothing else.
  *
  * Script Properties (Project Settings > Script properties):
- *   SHARED_SECRET   required — any long random string. Every request carries
- *                   it; without it the deployment answers nothing.
- *   GROUP_NAME      optional — shown in the app header, e.g. "כדורגל כיתה ג׳"
+ *   SHARED_SECRET   the first group's secret. Required to set up; after that
+ *                   each group carries its own in the Groups tab.
+ *   GROUP_NAME      the first group's name.
+ *   HOST_SECRET     optional — needed only to create further groups from the
+ *                   app. Yours alone: it is what stops a stranger with this
+ *                   URL filling your Drive with groups. Parents never see it.
  *
  * The nightly "nobody has claimed tomorrow" reminder is deliberately NOT in
  * this file: it needs permission to send mail as you and to run while you are
@@ -25,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 6;
+const BACKEND_VERSION = 7;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -35,7 +39,7 @@ const TZ = 'Asia/Jerusalem';
 const EVENT_COLS = [
   'id', 'title', 'date', 'time', 'place', 'backTime', 'note',
   'toDriver', 'backDriver', 'toRiders', 'backRiders',
-  'createdBy', 'updatedAt', 'deleted'
+  'createdBy', 'updatedAt', 'deleted', 'group'
 ];
 
 /* `admin` and `removed` are appended rather than slotted in where they read
@@ -44,7 +48,7 @@ const EVENT_COLS = [
  * every board written before today reads one field to the left. New columns
  * go on the end, always. */
 const PARENT_COLS = ['id', 'name', 'color', 'phone', 'email', 'updatedAt',
-                     'admin', 'removed'];
+                     'admin', 'removed', 'group'];
 
 /* How long a finished event stays on the board. It is still shown for a week
  * after the fact — greyed out, and mostly so it can be copied into next week's
@@ -60,8 +64,104 @@ const KEEP_PAST_DAYS = 7;
 const LEGS = { to: 'toDriver', back: 'backDriver' };
 const RIDERS = { to: 'toRiders', back: 'backRiders' };
 
+/* One deployment, several groups. Each has a code, which is public enough to
+ * paste into a WhatsApp message, and a secret, which is not. Both the Events
+ * and the Parents tab carry the code — appended at the end, like every column
+ * added after the fact. */
+const GROUP_COLS = ['id', 'name', 'secret', 'driversWanted', 'createdAt', 'removed'];
+
+/* The group this request is for, resolved once in doPost and read by
+ * everything downstream rather than threaded through twenty signatures. Safe
+ * for the same reason the lock counter is: an Apps Script execution is
+ * single-threaded, and separate executions share nothing. */
+let CURRENT = null;
+
 /* Actions that change the board, and so are closed to a removed parent. */
 const WRITES = ['me', 'save', 'remove', 'claim', 'release', 'ride', 'kick', 'drivers'];
+
+/* Ambiguous characters left out: a code gets read off one phone and typed into
+ * another, and l/1 and O/0 are where that goes wrong. */
+const CODE_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
+
+function groupCode() {
+  let s = '';
+  for (let i = 0; i < 6; i++) {
+    s += CODE_ALPHABET.charAt(Math.floor(Math.random() * CODE_ALPHABET.length));
+  }
+  return s;
+}
+
+function allGroups() {
+  return readAll(sheet('Groups', GROUP_COLS), GROUP_COLS).filter(g => g.removed !== '1');
+}
+
+/* The group that existed before groups did.
+ *
+ * A deployment that has been running has a board, parents and an admin, and
+ * none of those rows know which group they belong to because there was only
+ * ever one. So the first time this version runs it makes that group real —
+ * taking the name and secret it already had from Script Properties — and
+ * stamps every existing row with its code. Nothing is asked of anybody, and
+ * the app that was working yesterday goes on working. */
+const LEGACY_GROUP = 'main';
+
+function migrate() {
+  const sh = sheet('Groups', GROUP_COLS);
+  if (readAll(sh, GROUP_COLS).length) return;
+
+  const secret = PROPS.getProperty('SHARED_SECRET');
+  if (!secret) return;                       // nothing has been set up yet
+
+  writeRow(sh, GROUP_COLS, {
+    _row: 0,
+    id: LEGACY_GROUP,
+    name: PROPS.getProperty('GROUP_NAME') || '',
+    secret: secret,
+    driversWanted: PROPS.getProperty('DRIVERS_WANTED') || '',
+    createdAt: new Date().toISOString(),
+    removed: ''
+  });
+
+  [['Events', EVENT_COLS], ['Parents', PARENT_COLS]].forEach(function (pair) {
+    const tab = sheet(pair[0], pair[1]);
+    readAll(tab, pair[1]).forEach(function (row) {
+      if (!row.group) {
+        row.group = LEGACY_GROUP;
+        writeRow(tab, pair[1], row);
+      }
+    });
+  });
+}
+
+/* Making a group is the one thing a stranger with the URL must not be able to
+ * do — this deployment runs on somebody's own Google account, and an open
+ * endpoint for creating groups is an invitation to fill their Drive. So it
+ * takes a second, separate secret that only the person hosting has. Parents
+ * never see it: they are given a code and a group secret, which is all joining
+ * needs. */
+function newGroup(req) {
+  const host = PROPS.getProperty('HOST_SECRET');
+  if (!host) return { ok: false, error: 'no-host-secret' };
+  if (req.hostSecret !== host) return { ok: false, error: 'unauthorized' };
+
+  const name = String(req.name || '').trim();
+  const secret = String(req.secret || '').trim();
+  if (!name) return { ok: false, error: 'name required' };
+  if (secret.length < 8) return { ok: false, error: 'secret-too-short' };
+
+  return withLock(function () {
+    const sh = sheet('Groups', GROUP_COLS);
+    const taken = readAll(sh, GROUP_COLS).map(g => g.id);
+    let id = groupCode();
+    while (taken.indexOf(id) >= 0) id = groupCode();
+
+    writeRow(sh, GROUP_COLS, {
+      _row: 0, id: id, name: name, secret: secret,
+      driversWanted: '', createdAt: new Date().toISOString(), removed: ''
+    });
+    return { ok: true, group: id, name: name };
+  });
+}
 
 /* How many drivers a leg wants before the app calls it sorted. A group sets
  * its own — a squad that needs three cars and a pair of siblings sharing one
@@ -72,7 +172,7 @@ const DEFAULT_DRIVERS_WANTED = 2;
 const MAX_DRIVERS_WANTED = 6;
 
 function driversWanted() {
-  const n = Math.round(Number(PROPS.getProperty('DRIVERS_WANTED')));
+  const n = Math.round(Number(CURRENT && CURRENT.driversWanted));
   return (n >= 1 && n <= MAX_DRIVERS_WANTED) ? n : DEFAULT_DRIVERS_WANTED;
 }
 
@@ -86,7 +186,12 @@ function setDriversWanted(n, byId) {
     const v = Math.round(Number(n));
     if (!(v >= 1 && v <= MAX_DRIVERS_WANTED)) return { ok: false, error: 'out-of-range' };
 
-    PROPS.setProperty('DRIVERS_WANTED', String(v));
+    const sh = sheet('Groups', GROUP_COLS);
+    const row = readAll(sh, GROUP_COLS).filter(g => g.id === CURRENT.id)[0];
+    if (!row) return { ok: false, error: 'not found' };
+    row.driversWanted = String(v);
+    writeRow(sh, GROUP_COLS, row);
+    CURRENT = row;
     return { ok: true, driversWanted: v };
   });
 }
@@ -98,10 +203,22 @@ function doPost(e) {
   try {
     const req = JSON.parse(e.postData.contents);
 
-    if (!PROPS.getProperty('SHARED_SECRET')) {
-      return json({ ok: false, error: 'no-secret-configured' });
-    }
-    if (req.secret !== PROPS.getProperty('SHARED_SECRET')) {
+    migrate();
+
+    /* Creating a group is the only thing that happens outside a group, and it
+       carries the host's secret rather than any group's. */
+    if (req.action === 'newGroup') return json(newGroup(req));
+
+    /* An app that predates groups sends no code. It means the group that was
+       here before there were groups, which is exactly what migrate() just
+       gave a name to — so old phones keep working through the changeover. */
+    const wanted = String(req.group || '').trim() || LEGACY_GROUP;
+    CURRENT = allGroups().filter(g => g.id === wanted)[0] || null;
+
+    /* One answer for a wrong code and a wrong secret, deliberately. Telling a
+       stranger which of the two they got right turns the group list into
+       something worth guessing at. */
+    if (!CURRENT || CURRENT.secret !== req.secret) {
       return json({ ok: false, error: 'unauthorized' });
     }
 
@@ -271,7 +388,8 @@ function ping() {
   return {
     ok: true,
     version: BACKEND_VERSION,
-    group: PROPS.getProperty('GROUP_NAME') || '',
+    group: CURRENT.name || '',
+    groupId: CURRENT.id,
     driversWanted: driversWanted(),
     sheet: ss.getName(),
     sheetUrl: ss.getUrl()
@@ -286,7 +404,7 @@ function ping() {
 function state() {
   const from = shiftDays(today(), -KEEP_PAST_DAYS);
 
-  const events = readAll(sheet('Events', EVENT_COLS), EVENT_COLS)
+  const rows = events()
     .filter(e => e.deleted !== '1' && e.date >= from)
     .map(e => ({
       id: e.id,
@@ -318,10 +436,11 @@ function state() {
   return {
     ok: true,
     version: BACKEND_VERSION,
-    group: PROPS.getProperty('GROUP_NAME') || '',
+    group: CURRENT.name || '',
+    groupId: CURRENT.id,
     driversWanted: driversWanted(),
     parents: people,
-    events: events,
+    events: rows,
     now: new Date().toISOString()
   };
 }
@@ -346,8 +465,22 @@ function parseDrivers(raw) {
   return s.charAt(0) === '[' ? parseList(s) : [s];
 }
 
+/* Every read below goes through one of these two, and both filter by the group
+ * this request authenticated as. That is the whole of the separation between
+ * one group's board and another's, so it is deliberately the only way in. */
 function parents() {
-  return readAll(sheet('Parents', PARENT_COLS), PARENT_COLS);
+  return readAll(sheet('Parents', PARENT_COLS), PARENT_COLS)
+    .filter(p => p.group === CURRENT.id);
+}
+
+function events() {
+  return readAll(sheet('Events', EVENT_COLS), EVENT_COLS)
+    .filter(e => e.group === CURRENT.id);
+}
+
+/** One event of this group's, by id — never another group's, even given its id. */
+function eventById(id, liveOnly) {
+  return events().filter(e => e.id === id && (!liveOnly || e.deleted !== '1'))[0];
 }
 
 function isRemoved(id) {
@@ -433,7 +566,8 @@ function saveParent(parent) {
       email: String(parent.email || (existing ? existing.email : '')),
       updatedAt: new Date().toISOString(),
       admin: existing ? existing.admin : (anyAdmin ? '' : '1'),
-      removed: ''
+      removed: '',
+      group: CURRENT.id
     };
     writeRow(sh, PARENT_COLS, row);
     return {
@@ -458,7 +592,7 @@ function releaseEverywhere(parentId) {
   const from = today();
   let freed = 0;
 
-  readAll(sh, EVENT_COLS).forEach(function (e) {
+  events().forEach(function (e) {
     if (e.deleted === '1' || e.date < from) return;
     let touched = false;
 
@@ -521,8 +655,7 @@ function saveEvent(ev) {
 
   return withLock(function () {
     const sh = sheet('Events', EVENT_COLS);
-    const all = readAll(sh, EVENT_COLS);
-    const existing = ev.id && all.filter(e => e.id === ev.id)[0];
+    const existing = ev.id && eventById(ev.id, false);
 
     const row = {
       _row: existing ? existing._row : 0,
@@ -539,7 +672,8 @@ function saveEvent(ev) {
       backRiders: existing ? existing.backRiders : '[]',
       createdBy: existing ? existing.createdBy : String(ev.createdBy || ''),
       updatedAt: new Date().toISOString(),
-      deleted: ''
+      deleted: '',
+      group: CURRENT.id
     };
     writeRow(sh, EVENT_COLS, row);
     return { ok: true, id: row.id };
@@ -556,7 +690,7 @@ function clean(t) {
 function removeEvent(id) {
   return withLock(function () {
     const sh = sheet('Events', EVENT_COLS);
-    const found = readAll(sh, EVENT_COLS).filter(e => e.id === id)[0];
+    const found = eventById(id, false);
     if (!found) return { ok: false, error: 'not found' };
     found.deleted = '1';
     found.updatedAt = new Date().toISOString();
@@ -579,7 +713,7 @@ function claim(id, leg, parentId) {
 
   return withLock(function () {
     const sh = sheet('Events', EVENT_COLS);
-    const found = readAll(sh, EVENT_COLS).filter(e => e.id === id && e.deleted !== '1')[0];
+    const found = eventById(id, true);
     if (!found) return { ok: false, error: 'not found' };
 
     const drivers = parseDrivers(found[col]);
@@ -606,7 +740,7 @@ function release(id, leg, parentId) {
 
   return withLock(function () {
     const sh = sheet('Events', EVENT_COLS);
-    const found = readAll(sh, EVENT_COLS).filter(e => e.id === id && e.deleted !== '1')[0];
+    const found = eventById(id, true);
     if (!found) return { ok: false, error: 'not found' };
 
     found[col] = JSON.stringify(parseDrivers(found[col]).filter(p => p !== parentId));
@@ -625,7 +759,7 @@ function setRider(id, leg, parentId, riding) {
 
   return withLock(function () {
     const sh = sheet('Events', EVENT_COLS);
-    const found = readAll(sh, EVENT_COLS).filter(e => e.id === id && e.deleted !== '1')[0];
+    const found = eventById(id, true);
     if (!found) return { ok: false, error: 'not found' };
 
     const riders = parseList(found[col]).filter(p => p !== parentId);
@@ -651,18 +785,35 @@ function testSetup() {
     : 'MISSING — required, the app cannot connect without it'));
   out.push('GROUP_NAME     ' + (PROPS.getProperty('GROUP_NAME') || '(not set — optional)'));
 
+  out.push('HOST_SECRET    ' + (PROPS.getProperty('HOST_SECRET')
+    ? 'set — you can create further groups from the app'
+    : '(not set — this deployment hosts one group only)'));
+
   try {
     const ss = book();
     out.push('Spreadsheet    ' + ss.getName() + '  (bound — good)');
     out.push('               ' + ss.getUrl());
-    const st = state();
-    const active = st.parents.filter(p => !p.removed);
-    const admins = active.filter(p => p.admin).map(p => p.name);
-    out.push('Parents        ' + active.length +
-      (st.parents.length > active.length
-        ? '  (+' + (st.parents.length - active.length) + ' removed)' : ''));
-    out.push('Admin          ' + (admins.length ? admins.join(', ') : '(none yet)'));
-    out.push('Events ahead   ' + st.events.length);
+
+    migrate();
+    const list = allGroups();
+    out.push('Groups         ' + list.length);
+
+    /* Reported one group at a time, because that is how everything else in
+       here works: nothing reads across a group boundary, testSetup included. */
+    list.forEach(function (g) {
+      CURRENT = g;
+      const st = state();
+      const active = st.parents.filter(p => !p.removed);
+      const admins = active.filter(p => p.admin).map(p => p.name);
+      out.push('  ' + g.id + '  ' + (g.name || '(unnamed)'));
+      out.push('      parents  ' + active.length +
+        (st.parents.length > active.length
+          ? ' (+' + (st.parents.length - active.length) + ' removed)' : '') +
+        '   admin: ' + (admins.length ? admins.join(', ') : 'none yet'));
+      out.push('      events   ' + st.events.length +
+        '   drivers wanted: ' + driversWanted() + ' per leg');
+    });
+    CURRENT = null;
   } catch (err) {
     out.push('Spreadsheet    FAILED — ' + err);
     out.push('               If this says "no bound spreadsheet", the script was');
@@ -670,8 +821,6 @@ function testSetup() {
     out.push('               Extensions > Apps Script.');
   }
 
-  out.push('Drivers wanted ' + driversWanted() + ' per leg' +
-    (PROPS.getProperty('DRIVERS_WANTED') ? '' : '  (default — set it in the app)'));
   out.push('Backend        v' + BACKEND_VERSION);
 
   const text = out.join('\n');

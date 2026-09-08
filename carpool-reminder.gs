@@ -46,7 +46,25 @@ function removeReminder() {
   return 'Reminder removed.';
 }
 
+/* A trigger arrives with no request behind it, so there is no current group —
+ * it has to walk them itself, and mail each one separately. A parent in two
+ * groups would rather have two short mails they can act on than one long one
+ * about children they are not driving. */
 function dailyReminder() {
+  migrate();
+  allGroups().forEach(function (g) {
+    CURRENT = g;
+    try {
+      remindGroup(g);
+    } catch (err) {
+      /* One group's bad address must not stop the next group's mail. */
+      Logger.log('reminder failed for ' + g.id + ': ' + err);
+    }
+  });
+  CURRENT = null;
+}
+
+function remindGroup(group) {
   const tomorrow = shiftDays(today(), 1);
   const due = state().events.filter(e => e.date === tomorrow);
   if (!due.length) return;
@@ -61,7 +79,7 @@ function dailyReminder() {
   });
   if (!open.length) return;                 // every leg covered: say nothing
 
-  const to = readAll(sheet('Parents', PARENT_COLS), PARENT_COLS)
+  const to = parents()
     .map(p => p.email).filter(a => a && a.indexOf('@') > 0);
   if (!to.length) return;
 
@@ -69,7 +87,7 @@ function dailyReminder() {
      reason for this mail to hand them all to everybody. */
   MailApp.sendEmail({
     bcc: to.join(','),
-    subject: (PROPS.getProperty('GROUP_NAME') || 'Carpool') + ': אין נהג למחר',
+    subject: (group.name || 'Carpool') + ': אין נהג למחר',
     body: 'נסיעות מחר שעדיין אין להן נהג:\n\n' + open.join('\n') +
           '\n\nפתחו את האפליקציה כדי לשבץ את עצמכם.'
   });
@@ -77,18 +95,25 @@ function dailyReminder() {
 
 /** Run this to check the mail before trusting it to a trigger. */
 function testReminder() {
+  migrate();
   const installed = ScriptApp.getProjectTriggers()
     .filter(t => t.getHandlerFunction() === 'dailyReminder').length;
-  const addresses = readAll(sheet('Parents', PARENT_COLS), PARENT_COLS)
-    .map(p => p.email).filter(a => a && a.indexOf('@') > 0);
 
-  const text = [
+  const out = [
     'Trigger        ' + (installed ? 'installed' : 'not installed — run installReminder'),
-    'Addresses      ' + addresses.length + ' of ' +
-      readAll(sheet('Parents', PARENT_COLS), PARENT_COLS).length + ' parents',
-    'Quota left     ' + MailApp.getRemainingDailyQuota() + ' mails today',
-    'Sending now…'
-  ].join('\n');
+    'Quota left     ' + MailApp.getRemainingDailyQuota() + ' mails today'
+  ];
+  allGroups().forEach(function (g) {
+    CURRENT = g;
+    const all = parents();
+    const reachable = all.filter(p => p.email && p.email.indexOf('@') > 0);
+    out.push('  ' + g.id + '  ' + (g.name || '(unnamed)') +
+      '   addresses: ' + reachable.length + ' of ' + all.length);
+  });
+  CURRENT = null;
+  out.push('Sending now…');
+
+  const text = out.join('\n');
   Logger.log(text);
   dailyReminder();
   return text;

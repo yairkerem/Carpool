@@ -89,6 +89,24 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 }
 .bar-title{flex:1;min-width:0;display:flex;align-items:baseline;gap:8px}
 .bar-title b{font-size:19px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.switch{
+  display:flex;align-items:baseline;gap:5px;min-width:0;
+  border:0;background:transparent;padding:0;cursor:pointer;color:inherit;
+}
+.switch:disabled{cursor:default}
+#switch-caret{font-size:12px;color:var(--muted);flex:none}
+.switcher{
+  display:flex;flex-direction:column;gap:2px;
+  margin:0 0 12px;padding:6px;border-radius:12px;
+  background:var(--card);box-shadow:var(--shadow);
+}
+.switch-item{
+  border:0;background:transparent;cursor:pointer;color:inherit;
+  text-align:start;padding:10px 12px;border-radius:9px;font-size:15px;
+}
+.switch-item.on{background:var(--brand-soft);color:var(--brand);font-weight:700}
+.switch-item.add{color:var(--muted);border-top:1px solid var(--line);border-radius:0 0 9px 9px}
+.switch-item:active{background:var(--line)}
 .bar-acts{display:flex;gap:4px;flex:none}
 .iconbtn{
   border:0;background:transparent;color:var(--muted);
@@ -437,6 +455,14 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
   </div>
 
   <div class="field">
+    <label for="i-group">קוד הקבוצה</label>
+    <input id="i-group" type="text" dir="ltr" autocomplete="off" autocapitalize="off"
+           spellcheck="false" maxlength="12">
+    <p class="hint">שש אותיות וספרות, ממי שהקים את הקבוצה. אם קיבלתם רק כתובת
+      וסיסמה — השאירו ריק.</p>
+  </div>
+
+  <div class="field">
     <label for="i-secret">סיסמה משותפת</label>
     <input id="i-secret" type="password" autocomplete="off" autocapitalize="off"
            spellcheck="false" enterkeyhint="go">
@@ -508,7 +534,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 <section id="s-list" class="screen">
   <header class="bar">
     <div class="bar-title">
-      <b id="group-name">Carpool</b>
+      <button id="b-switch" class="switch"><b id="group-name">Carpool</b><span id="switch-caret" hidden>▾</span></button>
       <span id="me-chip" class="chip dot" hidden></span>
     </div>
     <div class="bar-acts">
@@ -516,6 +542,9 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
       <button id="b-settings" class="iconbtn" aria-label="הגדרות" title="הגדרות">⚙</button>
     </div>
   </header>
+
+  <!-- Only ever open on purpose: a phone in one group never sees it. -->
+  <div id="switcher" class="switcher" hidden></div>
 
   <div id="update-bar" class="banner" hidden>
     <span>יש גרסה חדשה של האפליקציה.</span>
@@ -596,7 +625,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 25;
+const APP_VERSION = 26;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -615,17 +644,34 @@ const COLORS = ['#2563eb','#0d9488','#16a34a','#ca8a04','#ea580c',
                 '#dc2626','#db2777','#7c3aed','#0891b2','#57534e'];
 
 const LS = {
+  list:'cp.list', active:'cp.active',
+  /* What one group looked like before there could be two. Read once, folded
+     into the list, and then left alone — a phone that downgrades to an older
+     build should still find the group it had. */
   backend:'cp.backend', secret:'cp.secret', me:'cp.me', board:'cp.board'
 };
 
+/* A membership: one group, on this device.
+ *   { backend, groupId, secret, name, me, board }
+ * A parent with a child in two carpools has two, and switches between them.
+ * Each carries its own identity, because they are separate groups on separate
+ * boards and the same person is a different member of each. */
 const state = {
-  backend:'', secret:'',
+  list:[],            // every group this device belongs to
+  i:0,                // which one is on screen
+
+  /* The active membership, unpacked — everything below is a view of
+     state.list[state.i], kept flat because that is how the whole app already
+     reads it. */
+  backend:'', secret:'', groupId:'',
   me:null,            // {id,name,color,phone} — id is issued by the backend
   group:'', parents:[], events:[],
   driversWanted:DEFAULT_DRIVERS_WANTED,   // the group's own, once the backend says
+
   offline:false,
   setupReturn:null,   // where the gear was opened from
-  editing:null        // the event being edited, or null for a new one
+  editing:null,       // the event being edited, or null for a new one
+  joining:false       // setup is adding a group rather than editing this one
 };
 
 const $ = id => document.getElementById(id);
@@ -770,10 +816,12 @@ async function api(payload, timeoutMs, url){
     const res = await fetch(target, {
       method:'POST',
       headers:{ 'Content-Type':'text/plain;charset=utf-8' },
-      /* `me` rides along on everything so the backend can refuse writes from
-         somebody the group has removed, whatever they are trying to do. */
+      /* `group` says which board this is about — one deployment can hold
+         several — and `me` rides along so the backend can refuse writes from
+         somebody that group has removed, whatever they are trying to do. */
       body: JSON.stringify(Object.assign(
-        { secret: state.secret, me: state.me ? state.me.id : '' }, payload)),
+        { secret: state.secret, group: state.groupId,
+          me: state.me ? state.me.id : '' }, payload)),
       redirect:'follow',
       signal: ctrl.signal
     });
@@ -831,25 +879,56 @@ function iAmAdmin(){
 /* The board is cached whole so the app opens on the last known state instead
    of a spinner — a parent checking who drives while walking out of the house
    should not have to wait for Apps Script to wake up. */
-function saveBoard(){
+function here(){ return state.list[state.i] || null; }
+
+/* Every membership, and which one is showing. Written together so the two can
+ * never disagree about which group the app thinks it is in. */
+function persist(){
   try {
-    localStorage.setItem(LS.board, JSON.stringify({
-      group: state.group, driversWanted: state.driversWanted,
-      parents: state.parents, events: state.events
-    }));
-  } catch (e) { /* a full quota is not worth failing the render over */ }
+    localStorage.setItem(LS.list, JSON.stringify(state.list));
+    localStorage.setItem(LS.active, String(state.i));
+  } catch (e) { /* a full quota is not worth failing over */ }
+}
+
+/* Each group's board is cached with its membership, not in one shared slot —
+ * two groups on one phone would otherwise take turns overwriting each other,
+ * and every switch would start on a blank screen. */
+function saveBoard(){
+  const m = here();
+  if (!m) return;
+  m.board = {
+    group: state.group, driversWanted: state.driversWanted,
+    parents: state.parents, events: state.events
+  };
+  persist();
 }
 
 function loadBoard(){
-  try {
-    const raw = localStorage.getItem(LS.board);
-    if (!raw) return;
-    const b = JSON.parse(raw);
-    state.group = b.group || '';
-    state.driversWanted = b.driversWanted || DEFAULT_DRIVERS_WANTED;
-    state.parents = b.parents || [];
-    state.events = b.events || [];
-  } catch (e) { /* ignore a corrupted cache; the network will replace it */ }
+  const b = (here() || {}).board;
+  state.group = (b && b.group) || (here() || {}).name || '';
+  state.driversWanted = (b && b.driversWanted) || DEFAULT_DRIVERS_WANTED;
+  state.parents = (b && b.parents) || [];
+  state.events = (b && b.events) || [];
+}
+
+/* Put a membership on screen: unpack it, draw what was cached so the board is
+ * there immediately, then go and ask what has changed. */
+function useGroup(i){
+  if (i < 0 || i >= state.list.length) return;
+  state.i = i;
+  const m = state.list[i];
+  state.backend = m.backend;
+  state.secret = m.secret;
+  state.groupId = m.groupId || '';
+  state.me = m.me;
+  state.offline = false;
+  loadBoard();
+  boardAt = null;                 // a different group starts at its own today
+  persist();
+  banner('');
+  show('list');
+  render();
+  refresh(true);
 }
 
 let refreshing = false;
@@ -923,8 +1002,40 @@ function personChip(p, solid){
 }
 
 /* ---- rendering ------------------------------------------------ */
+/* The header name doubles as the switcher, but only where there is something
+ * to switch to — one group should look like an app with one group, not like an
+ * app hiding a menu. */
+function paintSwitcher(){
+  const many = state.list.length > 1;
+  $('switch-caret').hidden = !many;
+  $('b-switch').disabled = !many;
+
+  const box = $('switcher');
+  box.textContent = '';
+  state.list.forEach(function (m, n){
+    const b = el('button', 'switch-item' + (n === state.i ? ' on' : ''),
+      m.name || 'קבוצה');
+    b.type = 'button';
+    b.onclick = () => { box.hidden = true; if (n !== state.i) useGroup(n); };
+    box.appendChild(b);
+  });
+
+  const add = el('button', 'switch-item add', '+ הצטרפות לקבוצה');
+  add.type = 'button';
+  add.onclick = () => { box.hidden = true; joinGroup(); };
+  box.appendChild(add);
+}
+
+/* Opens settings with everything blank, so joining a second group cannot be
+ * mistaken for editing the first. */
+function joinGroup(){
+  state.joining = true;
+  openSetup('');
+}
+
 function render(){
   $('group-name').textContent = state.group || 'Carpool';
+  paintSwitcher();
 
   const chip = $('me-chip');
   if (state.me){
@@ -1722,22 +1833,27 @@ function paintSwatches(){
 }
 
 function openSetup(message){
-  const connected = !!(state.backend && state.secret && state.me);
-  state.setupReturn = connected ? 'list' : null;
+  /* Joining shows the same screen with everything blank, and must not offer
+     a way back to a board this group is not on yet. */
+  const connected = !state.joining && !!(state.backend && state.secret && state.me);
+  state.setupReturn = state.list.length ? 'list' : null;
 
   /* The bar and the big title name the same screen, so only one of them shows:
      the bar, with its back arrow, once there is a board to go back to — the
      title and its explanation on a device that has never connected. */
-  $('setup-bar').hidden = !connected;
-  $('setup-h').hidden = connected;
-  $('setup-lede').hidden = connected;
-  $('connect-label').textContent = connected ? 'שמירה' : 'התחברות';
+  const canGoBack = !!state.list.length;
+  $('setup-bar').hidden = !canGoBack;
+  $('setup-h').hidden = canGoBack;
+  $('setup-lede').hidden = canGoBack;
+  $('setup-bar').querySelector('b').textContent = state.joining ? 'הצטרפות לקבוצה' : 'הגדרות';
+  $('connect-label').textContent = state.joining ? 'הצטרפות' : (connected ? 'שמירה' : 'התחברות');
 
-  $('i-backend').value = state.backend;
-  $('i-secret').value = state.secret;
-  $('i-name').value = state.me ? state.me.name : '';
-  $('i-phone').value = state.me ? (state.me.phone || '') : '';
-  pickedColor = (state.me && state.me.color) || COLORS[0];
+  $('i-backend').value = state.joining ? '' : state.backend;
+  $('i-group').value = state.joining ? '' : (state.groupId || '');
+  $('i-secret').value = state.joining ? '' : state.secret;
+  $('i-name').value = (!state.joining && state.me) ? state.me.name : '';
+  $('i-phone').value = (!state.joining && state.me) ? (state.me.phone || '') : '';
+  pickedColor = (!state.joining && state.me && state.me.color) || COLORS[0];
   paintSwatches();
 
   $('group-sect').hidden = !connected || !iAmAdmin();
@@ -1819,9 +1935,22 @@ async function registerMe(extra){
     }
 
     state.me = me.parent;
-    localStorage.setItem(LS.backend, state.backend);
-    localStorage.setItem(LS.secret, state.secret);
-    localStorage.setItem(LS.me, JSON.stringify(state.me));
+
+    /* Joining writes a new membership; saving updates the one on screen. The
+       group's code is whatever the backend confirmed, so a device that joined
+       before codes existed quietly acquires one the first time it connects. */
+    const entry = {
+      backend: state.backend, groupId: state.groupId, secret: state.secret,
+      name: state.group || '', me: state.me, board: (here() || {}).board || null
+    };
+    if (state.joining){
+      state.list.push(entry);
+      state.i = state.list.length - 1;
+      state.joining = false;
+    } else {
+      state.list[state.i] = entry;
+    }
+    persist();
 
     say('setup-msg', '');
     show('list');
@@ -1890,12 +2019,15 @@ async function connect(){
     /* Probe before saving, so a typo cannot lock the app out of its own
        settings screen on the next launch. */
     const saved = state.secret;
+    const savedGroup = state.groupId;
     state.secret = secret;
+    state.groupId = $('i-group').value.trim().toLowerCase();
     const p = await api({ action:'ping' }, 25000, backend);
     if (!p.ok){
       state.secret = saved;
+      state.groupId = savedGroup;
       say('setup-msg', p.error === 'unauthorized'
-        ? 'הסיסמה המשותפת שגויה.'
+        ? 'קוד הקבוצה או הסיסמה שגויים.'
         : ('השרת החזיר שגיאה: ' + (p.error || 'לא ידוע')), 'err');
       return;
     }
@@ -1903,6 +2035,9 @@ async function connect(){
     state.backend = backend;
     state.backendVersion = p.version;
     state.group = p.group || '';
+    /* ping answers with the code it actually authenticated as, so a blank
+       field on a pre-groups deployment comes back filled in. */
+    state.groupId = p.groupId || state.groupId || '';
 
     await registerMe({});
   } catch (err) {
@@ -1966,10 +2101,26 @@ async function saveDriversWanted(){
   }
 }
 
+/* Leaves this group only. A phone in three carpools should not lose all three
+   because somebody's child changed clubs. */
 function forget(){
-  if (!confirm('להתנתק מהקבוצה? הכתובת, הסיסמה והשם יימחקו מהמכשיר הזה.')) return;
-  for (const k of Object.keys(LS)) localStorage.removeItem(LS[k]);
-  location.reload();
+  const m = here();
+  const label = (m && m.name) ? '"' + m.name + '"' : 'הקבוצה';
+  if (!confirm('להתנתק מ' + label + '? הפרטים יימחקו מהמכשיר הזה. ' +
+               'שאר הקבוצות נשארות.')) return;
+
+  state.list.splice(state.i, 1);
+  state.i = 0;
+  persist();
+
+  if (!state.list.length){
+    /* Nothing left to go back to, so clear the old single-group keys too —
+       otherwise the next launch would migrate the group just left back in. */
+    [LS.backend, LS.secret, LS.me, LS.board].forEach(k => localStorage.removeItem(k));
+    location.reload();
+    return;
+  }
+  useGroup(0);
 }
 
 /* ---- service worker ------------------------------------------- */
@@ -2131,7 +2282,17 @@ $('b-drivers-save').onclick = saveDriversWanted;
 $('b-check-update').onclick = checkUpdate;
 $('b-claim-new').onclick = () => registerMe({ force: true });
 
-$('b-settings').onclick = () => openSetup('');
+$('b-settings').onclick = () => { state.joining = false; openSetup(''); };
+$('b-switch').onclick = () => {
+  const box = $('switcher');
+  box.hidden = !box.hidden;
+};
+/* A menu that stays open after you have looked away is a menu in the way. */
+document.addEventListener('click', e => {
+  if (!$('switcher').hidden && !e.target.closest('#switcher, #b-switch')){
+    $('switcher').hidden = true;
+  }
+});
 $('b-refresh').onclick = () => refresh();
 $('b-new').onclick = () => openEdit(null);
 $('b-update').onclick = applyUpdate;
@@ -2168,11 +2329,37 @@ setInterval(() => {
 }, 60000);
 
 /* ---- boot ----------------------------------------------------- */
+/* A phone that has been using this app since before there were groups has its
+ * one group in four loose keys. Fold it into the list, keeping its board so
+ * the first screen after the update is not blank, and leave the old keys where
+ * they are — cheap insurance if this build ever has to be rolled back. */
+function migrateStorage(){
+  const backend = localStorage.getItem(LS.backend);
+  const secret = localStorage.getItem(LS.secret);
+  if (!backend || !secret) return;
+
+  let me = null, board = null;
+  try { me = JSON.parse(localStorage.getItem(LS.me) || 'null'); } catch (e) {}
+  try { board = JSON.parse(localStorage.getItem(LS.board) || 'null'); } catch (e) {}
+  if (!me) return;
+
+  /* No code: this is the group that was here before codes, and the backend
+     answers a missing one with exactly that group. */
+  state.list = [{
+    backend: backend, groupId: '', secret: secret,
+    name: (board && board.group) || '', me: me, board: board
+  }];
+  state.i = 0;
+  persist();
+}
+
 (function boot(){
-  state.backend = localStorage.getItem(LS.backend) || '';
-  state.secret = localStorage.getItem(LS.secret) || '';
-  try { state.me = JSON.parse(localStorage.getItem(LS.me) || 'null'); }
-  catch (e) { state.me = null; }
+  try { state.list = JSON.parse(localStorage.getItem(LS.list) || '[]'); }
+  catch (e) { state.list = []; }
+  state.i = Math.max(0, Math.min(state.list.length - 1,
+    Number(localStorage.getItem(LS.active)) || 0));
+
+  if (!state.list.length) migrateStorage();
 
   /* Read before anything else draws: an update reloads the whole page, so the
      only way the settings screen can report what happened is to be told by
@@ -2181,16 +2368,13 @@ setInterval(() => {
 
   registerSW();
 
-  if (!state.backend || !state.secret || !state.me){
+  if (!state.list.length){
     openSetup('');
     if (updated) sayUpdated();
     return;
   }
 
-  loadBoard();
-  show('list');
-  render();
-  refresh();
+  useGroup(state.i);
 
   /* Whoever pressed the update button was standing in settings and is owed an
      answer there, rather than being dropped on the board wondering whether
