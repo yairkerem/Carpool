@@ -199,8 +199,8 @@ That one is yours alone. It is what stops somebody who has the app's address
 from filling your Drive with groups, so it never goes in a WhatsApp message.
 Without it this deployment simply hosts the one group it already has.
 
-**Make a group.** In the app: the group name at the top of the board →
-**יצירת קבוצה חדשה**, or the **יצירת קבוצה** button in settings. Fill in the
+**Make a group.** In the app: settings → **יצירת קבוצה**, under
+*הקבוצות שלי*. Fill in the
 server address, your `HOST_SECRET`, a name for the group, and a secret for it —
 there is a button that invents a good one.
 
@@ -213,10 +213,16 @@ The host secret is typed each time and never stored on the device.
 Parents of that group need three things: the app's address, the code, and the
 group's secret. They enter all three on the setup screen.
 
-**Joining more than one.** A parent with children in two carpools taps the
-group's name at the top of the board and chooses **+ הצטרפות לקבוצה**. Both
-then live on the same phone, and the same name at the top switches between
-them. Each keeps its own board, its own colour for you, and its own admin.
+**Joining more than one.** A parent with children in two carpools opens
+settings and presses **הצטרפות לקבוצה** under *הקבוצות שלי*, then enters the
+second group's address, code and secret. Both then live on the same phone, and
+the group's name at the top of the board switches between them. Each keeps its
+own board, its own colour for you, and its own admin.
+
+Which groups the phone is in is a settings question; which one you are looking
+at is the name at the top. They are deliberately not the same control — the
+name at the top does nothing at all until there are two groups to move
+between.
 
 **Renaming a group.** The group's admin does it in settings, in the same box
 that sets how many drivers a leg wants, and every other phone picks the new

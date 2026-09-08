@@ -112,7 +112,6 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
   text-align:start;padding:10px 12px;border-radius:9px;font-size:15px;
 }
 .switch-item.on{background:var(--brand-soft);color:var(--brand);font-weight:700}
-.switch-item.add{color:var(--muted);border-top:1px solid var(--line);border-radius:0 0 9px 9px}
 .switch-item:active{background:var(--line)}
 .bar-acts{display:flex;gap:4px;flex:none}
 .iconbtn{
@@ -536,6 +535,20 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     </p>
   </div>
 
+  <!-- Which groups this phone is in. Moving between them is the name at the
+       top of the board; changing the list of them is here. Two different
+       questions, and answering both in the same menu is what once put
+       "join a group" inside a menu that would not open until you had. -->
+  <div class="sect" id="groups-sect">
+    <h3>הקבוצות שלי</h3>
+    <p class="hint" id="groups-note"></p>
+    <div class="rowbtns" style="margin-top:10px">
+      <button type="button" id="b-join-group" hidden>הצטרפות לקבוצה</button>
+      <button type="button" id="b-new-group">יצירת קבוצה</button>
+      <button type="button" id="b-forget" hidden>התנתקות מהקבוצה</button>
+    </div>
+  </div>
+
   <!-- Always on screen, connected or not. A parent stuck on this page with an
        old build is exactly who needs the update button, and hiding it until
        they have connected puts it behind the problem it solves. -->
@@ -547,8 +560,6 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
         <span id="update-spin" class="spin" hidden></span>
         <span id="update-label">עדכון האפליקציה</span>
       </button>
-      <button type="button" id="b-new-group">יצירת קבוצה</button>
-      <button type="button" id="b-forget" hidden>התנתקות מהקבוצה</button>
     </div>
     <!-- The update button's own answer. It used to go to the message line up
          by the password field, which on a phone is off the top of the screen
@@ -725,7 +736,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 38;
+const APP_VERSION = 39;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1240,12 +1251,19 @@ function personChip(p, solid){
 }
 
 /* ---- rendering ------------------------------------------------ */
-/* The header name doubles as the switcher, and it is always open, even on a
- * phone in one group. It used to be disabled until there were two, on the
- * grounds that one group should not look like an app hiding a menu — but
- * joining the second group is itself in this menu, so that hid the only door
- * to it behind having already walked through it. */
+/* The header name switches between groups, and does nothing else. Joining and
+ * creating live in settings now: they change which groups this phone is in,
+ * which is a different question from which one you are looking at, and they
+ * were only ever here because this was the first menu to exist.
+ *
+ * So it opens only where there is something to switch to. That was true once
+ * before and was wrong then, because joining was inside it — a door to the
+ * second group that would not open until you had a second group. It is safe
+ * now that the door is somewhere a phone in one group can reach. */
 function paintSwitcher(){
+  const many = state.list.length > 1;
+  $('switch-caret').hidden = !many;
+  $('b-switch').disabled = !many;
 
   const box = $('switcher');
   box.textContent = '';
@@ -1256,16 +1274,6 @@ function paintSwitcher(){
     b.onclick = () => { box.hidden = true; if (n !== state.i) useGroup(n); };
     box.appendChild(b);
   });
-
-  const add = el('button', 'switch-item add', '+ הצטרפות לקבוצה');
-  add.type = 'button';
-  add.onclick = () => { box.hidden = true; joinGroup(); };
-  box.appendChild(add);
-
-  const make = el('button', 'switch-item add', 'יצירת קבוצה חדשה');
-  make.type = 'button';
-  make.onclick = () => { box.hidden = true; openNewGroup(); };
-  box.appendChild(make);
 }
 
 /* Opens settings with everything blank, so joining a second group cannot be
@@ -2283,9 +2291,18 @@ function openSetup(message){
     people.appendChild(row);
   }
 
-  /* The version block stays; only leaving a group you are not in makes no
-     sense. */
+  /* Joining is what the form above already is on a phone that has not
+     connected, so offering it as a button too would be one door drawn twice.
+     Leaving a group you are not in makes no sense either; creating one always
+     does. */
+  $('b-join-group').hidden = !connected;
   $('b-forget').hidden = !connected;
+  $('groups-note').textContent = !connected ? ''
+    : (state.list.length > 1
+        ? 'המכשיר הזה רשום ל-' + state.list.length +
+          ' קבוצות. המעבר ביניהן הוא בשם הקבוצה בראש הלוח.'
+        : 'המכשיר הזה רשום לקבוצה אחת. אפשר להצטרף לעוד, ואז לעבור ביניהן ' +
+          'בשם הקבוצה בראש הלוח.');
   /* The device's own parent id, and whether the group thinks it is an admin.
      A phone is a member, not a person: connecting from a second device makes
      a second row in the sheet, with the same name and a different id — so
@@ -2743,6 +2760,7 @@ $('b-setup-back').onclick = () => { show(state.setupReturn || 'setup'); render()
 $('b-forget').onclick = forget;
 $('b-drivers-save').onclick = saveGroupSettings;
 
+$('b-join-group').onclick = joinGroup;
 $('b-new-group').onclick = openNewGroup;
 $('b-ng-back').onclick = () => { show(state.list.length ? 'list' : 'setup'); render(); };
 $('b-ng-create').onclick = createGroup;
