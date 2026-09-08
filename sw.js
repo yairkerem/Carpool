@@ -8,17 +8,17 @@
  * cross-origin POST, and the guard in fetch() below only ever handles
  * same-origin GETs.
  */
-const CACHE_VERSION = 'v34';
+const CACHE_VERSION = 'v35';
 const CACHE = 'carpool-shell-' + CACHE_VERSION;
 
 const SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
-  './icon-192.png',
-  './icon-512.png',
-  './icon-maskable-192.png',
-  './icon-maskable-512.png'
+  './icon-car-192.png',
+  './icon-car-512.png',
+  './icon-car-maskable-192.png',
+  './icon-car-maskable-512.png'
 ];
 
 /* No skipWaiting() here on purpose. A new worker installs and then waits, so

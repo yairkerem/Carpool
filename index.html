@@ -10,8 +10,15 @@
 <meta name="description" content="לוח הסעות משותף להורים — מי מסיע להלוך ומי מסיע חזרה">
 
 <!-- iOS has no manifest install prompt: these are what make "add to home screen"
-     open without Safari chrome and with the right name under the icon. -->
-<link rel="apple-touch-icon" href="icon-192.png">
+     open without Safari chrome and with the right name under the icon.
+
+     A NEW ICON NEEDS A NEW FILENAME, here and in the manifest. Android bakes
+     the icon into a WebAPK at install and iOS into the shortcut; neither
+     refetches a URL whose bytes merely changed, so replacing icon-192.png in
+     place leaves every installed phone on the old picture however many times
+     it updates. A changed icon URL is a changed manifest, which is the thing
+     Android does go and look at. -->
+<link rel="apple-touch-icon" href="icon-car-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -707,7 +714,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 34;
+const APP_VERSION = 35;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
