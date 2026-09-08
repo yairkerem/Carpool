@@ -820,7 +820,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 48;
+const APP_VERSION = 49;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -3049,6 +3049,21 @@ let swReg = null;
 
 function registerSW(){
   if (!('serviceWorker' in navigator)) return;
+
+  /* Was anything controlling this page when it loaded?
+   *
+   * On a first-ever visit, nothing is. The worker installs, activates, calls
+   * clients.claim() and takes over this page — which fires controllerchange
+   * exactly as an update does, though nothing has been updated. Reloading
+   * there is not just pointless, it is destructive: the page has already read
+   * the invitation out of its own URL and taken it back out again, so the
+   * reload lands on a clean address with nothing to act on and the app comes
+   * up empty, asking for a server address.
+   *
+   * That is why it only ever failed on a phone that had never opened the app,
+   * and in a private window — the two places with no controller. */
+  const hadController = !!navigator.serviceWorker.controller;
+
   navigator.serviceWorker.register('sw.js').then(reg => {
     swReg = reg;
     if (reg.waiting && navigator.serviceWorker.controller) offerUpdate();
@@ -3065,6 +3080,10 @@ function registerSW(){
 
   let reloading = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
+    /* A handover only means "the new build is in charge now" when there was
+       an old one to hand over from. The first install has nothing to reload
+       for, and checkUpdate's no-controller path reloads itself explicitly. */
+    if (!hadController) return;
     if (reloading) return;
     reloading = true;
     location.reload();
@@ -3336,13 +3355,16 @@ function migrateStorage(){
      the visit that started it. */
   const updated = takeUpdateFlag();
 
-  registerSW();
-
   /* Arrived by an invitation link. It takes precedence over whatever this
      phone was last looking at: somebody has just tapped it, and that is the
-     most recent thing they asked for. */
+     most recent thing they asked for.
+     Read before the worker is registered, so that nothing the registration
+     does can happen between the URL arriving and it being understood. */
   const invite = readInvite();
   dropInvite();
+
+  registerSW();
+
   if (invite){
     takeInvite(invite);
     return;
