@@ -77,7 +77,8 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   next Tuesday is worse than not removing them at all. Past rides are left
   exactly as they were: a record of who drove, not a plan that can go wrong.
 
-  The admin also sets how many drivers a leg wants before it counts as sorted.
+  The admin also names the group and sets how many drivers a leg wants before
+  it counts as sorted.
 
   Removing is housekeeping rather than a lock. Everyone in a group shares one
   secret, so a removed parent who kept it could register again under a new

@@ -503,6 +503,12 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
        personal settings above. -->
   <div class="sect" id="group-sect" hidden>
     <h3>הגדרות הקבוצה</h3>
+    <div class="field" style="margin-bottom:14px">
+      <label for="i-gname">שם הקבוצה</label>
+      <input id="i-gname" type="text" dir="auto" maxlength="60">
+      <p class="hint">מה שכל ההורים בקבוצה רואים. הקוד והסיסמה לא משתנים —
+        אף אחד לא צריך להזין שוב כלום.</p>
+    </div>
     <label class="setting" for="i-drivers">
       <span>כמה נהגים דרושים לכל נסיעה</span>
       <input id="i-drivers" type="number" min="1" max="6" step="1" inputmode="numeric">
@@ -510,7 +516,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     <p class="hint">נסיעה שהגיעה למספר הזה מסומנת בירוק. אפשר תמיד להצטרף גם
       לנסיעה מלאה — זה רק צובע אותה.</p>
     <div class="rowbtns" style="margin-top:10px">
-      <button type="button" id="b-drivers-save">שמירת ההגדרה</button>
+      <button type="button" id="b-drivers-save">שמירת הגדרות הקבוצה</button>
     </div>
   </div>
 
@@ -697,7 +703,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 30;
+const APP_VERSION = 31;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -2088,6 +2094,7 @@ function openSetup(message){
 
   $('group-sect').hidden = !connected || !iAmAdmin();
   $('i-drivers').value = state.driversWanted || DEFAULT_DRIVERS_WANTED;
+  $('i-gname').value = state.group || '';
 
   /* Not `here` — that is the function returning the active membership, and a
      const of the same name puts it in the temporal dead zone for the whole of
@@ -2311,30 +2318,59 @@ async function kick(p){
   }
 }
 
-async function saveDriversWanted(){
+/* One button for the whole section, and only what has actually changed is
+ * sent. Two buttons for two fields invites saving one and forgetting the
+ * other, and this screen is visited rarely enough that nobody would notice. */
+async function saveGroupSettings(){
+  const name = $('i-gname').value.trim().replace(/\s+/g, ' ');
   const n = Math.round(Number($('i-drivers').value));
+
+  if (!name){ say('setup-msg', 'לקבוצה צריך שם.', 'err'); return; }
   if (!(n >= 1 && n <= MAX_DRIVERS_WANTED)){
     say('setup-msg', 'מספר הנהגים צריך להיות בין 1 ל-' + MAX_DRIVERS_WANTED + '.', 'err');
     return;
   }
+
+  const renaming = name !== state.group;
+  const recounting = n !== state.driversWanted;
+  if (!renaming && !recounting){ say('setup-msg', 'אין מה לשמור — שום דבר לא השתנה.', 'ok'); return; }
+
   say('setup-msg', 'שומר…', 'ok');
+  const done = [];
   try {
-    const r = await api({ action:'drivers', n: n, by: state.me.id }, 25000);
-    if (!r.ok){
-      if (rejected(r.error)) return;
-      say('setup-msg', r.error === 'not-admin'
-        ? 'רק מנהל/ת הקבוצה יכול/ה לשנות את זה.'
-        : ('השמירה נכשלה: ' + (r.error || 'שגיאה')), 'err');
-      return;
+    if (renaming){
+      const r = await api({ action:'rename', name: name, by: state.me.id }, 25000);
+      if (!r.ok) return groupSaveFailed(r);
+      state.group = r.group;
+      const m = here();
+      if (m){ m.name = r.group; persist(); }
+      done.push('השם עודכן');
     }
-    state.driversWanted = r.driversWanted;
+    if (recounting){
+      const r = await api({ action:'drivers', n: n, by: state.me.id }, 25000);
+      if (!r.ok) return groupSaveFailed(r);
+      state.driversWanted = r.driversWanted;
+      /* "עם 1 נהגים" is not a sentence anybody writes. */
+      done.push('נסיעה נחשבת מסודרת עם ' +
+        (r.driversWanted === 1 ? 'נהג אחד' : r.driversWanted + ' נהגים'));
+    }
     saveBoard();
-    /* "עם 1 נהגים" is not a sentence anybody writes. */
-    say('setup-msg', 'מעכשיו נסיעה נחשבת מסודרת עם ' +
-      (r.driversWanted === 1 ? 'נהג אחד' : r.driversWanted + ' נהגים') + '.', 'ok');
+    render();
+    openSetup('');
+    say('setup-msg', done.join('. ') + '.', 'ok');
   } catch (err) {
     say('setup-msg', netMessage(err), 'err');
   }
+}
+
+function groupSaveFailed(r){
+  if (rejected(r.error)) return;
+  const known = {
+    'not-admin': 'רק מנהל/ת הקבוצה יכול/ה לשנות את זה.',
+    'name-too-long': 'השם ארוך מדי — עד 60 תווים.'
+  };
+  say('setup-msg', known[r.error] ||
+    ('השמירה נכשלה: ' + (r.error || 'שגיאה')), 'err');
 }
 
 /* Leaves this group only. A phone in three carpools should not lose all three
@@ -2514,7 +2550,7 @@ async function checkUpdate(){
 $('b-connect').onclick = connect;
 $('b-setup-back').onclick = () => { show(state.setupReturn || 'setup'); render(); };
 $('b-forget').onclick = forget;
-$('b-drivers-save').onclick = saveDriversWanted;
+$('b-drivers-save').onclick = saveGroupSettings;
 
 $('b-new-group').onclick = openNewGroup;
 $('b-ng-back').onclick = () => { show(state.list.length ? 'list' : 'setup'); render(); };

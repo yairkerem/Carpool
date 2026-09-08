@@ -29,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 10;
+const BACKEND_VERSION = 11;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -77,7 +77,8 @@ const GROUP_COLS = ['id', 'name', 'secret', 'driversWanted', 'createdAt', 'remov
 let CURRENT = null;
 
 /* Actions that change the board, and so are closed to a removed parent. */
-const WRITES = ['me', 'save', 'remove', 'claim', 'release', 'ride', 'kick', 'drivers'];
+const WRITES = ['me', 'save', 'remove', 'claim', 'release', 'ride', 'kick',
+                'drivers', 'rename'];
 
 /* Ambiguous characters left out: a code gets read off one phone and typed into
  * another, and l/1 and O/0 are where that goes wrong. */
@@ -248,6 +249,32 @@ function driversWanted() {
   return (n >= 1 && n <= MAX_DRIVERS_WANTED) ? n : DEFAULT_DRIVERS_WANTED;
 }
 
+/* Renaming a group. The admin's to do, like everything else that changes what
+ * the whole group sees — the host owns the deployment but is not necessarily
+ * in this group at all, and would have no screen to do it from.
+ *
+ * Only the name moves. The code and the secret are what everybody has typed
+ * into their phone, and quietly changing either would sign the group out. */
+function setGroupName(name, byId) {
+  return withLock(function () {
+    const by = parents().filter(p => p.id === byId)[0];
+    if (!by || by.admin !== '1' || by.removed === '1') return { ok: false, error: 'not-admin' };
+
+    const clean = String(name || '').trim().replace(/\s+/g, ' ');
+    if (!clean) return { ok: false, error: 'name required' };
+    if (clean.length > 60) return { ok: false, error: 'name-too-long' };
+
+    const sh = sheet('Groups', GROUP_COLS);
+    const row = readAll(sh, GROUP_COLS).filter(g => g.id === CURRENT.id)[0];
+    if (!row) return { ok: false, error: 'not found' };
+
+    row.name = clean;
+    writeRow(sh, GROUP_COLS, row);
+    CURRENT = row;
+    return { ok: true, group: clean };
+  });
+}
+
 /* The admin's to set, like removing a member — it changes what the whole group
  * sees, so it is not everybody's to change. */
 function setDriversWanted(n, byId) {
@@ -314,6 +341,7 @@ function doPost(e) {
       case 'ride':    return json(setRider(req.id, req.leg, req.parentId, req.riding));
       case 'kick':    return json(kickParent(req.id, req.by));
       case 'drivers': return json(setDriversWanted(req.n, req.by));
+      case 'rename':  return json(setGroupName(req.name, req.by));
       default:        return json({ ok: false, error: 'unknown action: ' + req.action });
     }
   } catch (err) {

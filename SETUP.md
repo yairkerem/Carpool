@@ -218,11 +218,16 @@ group's name at the top of the board and chooses **+ הצטרפות לקבוצה
 then live on the same phone, and the same name at the top switches between
 them. Each keeps its own board, its own colour for you, and its own admin.
 
-**Renaming a group.** Its name lives in the `name` column of the `Groups` tab —
-edit the cell and every phone picks it up on its next refresh. There is no
-screen for it, because a name is set once and read forever, and the sheet is
-already open when you are doing that sort of thing. The code and the secret are
-unaffected; nobody has to re-enter anything.
+**Renaming a group.** The group's admin does it in settings, in the same box
+that sets how many drivers a leg wants, and every other phone picks the new
+name up on its next refresh. The code and the secret are unaffected — nobody
+has to re-enter anything, and nobody is signed out.
+
+It is the admin rather than the host who can do this: the host owns the
+deployment but is not necessarily *in* the group, and so has no screen to
+rename it from, while the admin is the parent actually running it. The host can
+still edit the `name` column of the `Groups` tab directly, which comes to the
+same thing.
 
 **Naming them for yourself.** Two groups can easily both be called "כדורגל",
 which is no help to the one parent in both. Settings has a **כינוי לקבוצה** —
