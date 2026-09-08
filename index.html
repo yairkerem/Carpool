@@ -817,7 +817,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 46;
+const APP_VERSION = 47;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1293,7 +1293,11 @@ function useGroup(i){
   banner('');
   show('list');
   render();
-  refresh(true);
+  /* Handed back, so a caller with something to say when the board has arrived
+     can wait for it. Starting a second refresh instead would not work: the
+     re-entrancy guard returns at once, and the message would be posted before
+     the first one finished and then wiped by it. */
+  return refresh(true);
 }
 
 let refreshing = false;
@@ -1574,8 +1578,11 @@ function takeInvite(invite){
   const mine = state.list.findIndex(m => m.groupId === invite.groupId &&
                                          m.backend === invite.backend);
   if (mine >= 0){
-    useGroup(mine);
-    banner('כבר הצטרפתם לקבוצה הזאת.');
+    /* After useGroup's own refresh, not before: that refresh clears the banner
+       when it succeeds, so a message posted first is wiped by the very fetch
+       that was started to answer it. */
+    const said = () => banner('כבר הצטרפתם לקבוצה הזאת.');
+    Promise.resolve(useGroup(mine)).then(said, said);
     return;
   }
 
@@ -1612,6 +1619,21 @@ function readInvite(){
     return null;
   }
 }
+
+/* An invitation can just as easily arrive at an app that is already open.
+ * Tapping a link to the page you are already on changes the fragment and does
+ * NOT reload — no boot, no readInvite, and the link appears to do nothing at
+ * all: the app sits on whatever screen it was showing, which if that was the
+ * setup screen looks exactly like being asked for a server address again.
+ *
+ * Same on Android when the installed app is already running: the link is
+ * handed to the running copy rather than starting a new one. */
+window.addEventListener('hashchange', function (){
+  const invite = readInvite();
+  if (!invite) return;
+  dropInvite();
+  takeInvite(invite);
+});
 
 /* Out of the address bar as soon as it is read: it is a secret, and a URL is
  * the most copied, shared and screenshotted thing on a phone. replaceState
