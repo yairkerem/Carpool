@@ -29,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 9;
+const BACKEND_VERSION = 10;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -594,7 +594,12 @@ function saveParent(parent) {
   }
   return withLock(function () {
     const sh = sheet('Parents', PARENT_COLS);
-    const all = readAll(sh, PARENT_COLS);
+    /* This group's members, not the deployment's. Unfiltered, a name already
+       used in another carpool would block this one, an id could match a
+       stranger's row, and -- worst of the three -- a brand new group's first
+       member would not become its admin, because some other group already had
+       one. */
+    const all = parents();
     let existing = parent.id && all.filter(p => p.id === parent.id)[0];
 
     /* A second device taking over an identity that already exists, rather than
@@ -699,7 +704,7 @@ function releaseEverywhere(parentId) {
 function kickParent(targetId, byId) {
   return withLock(function () {
     const sh = sheet('Parents', PARENT_COLS);
-    const all = readAll(sh, PARENT_COLS);
+    const all = parents();          // an admin here is not an admin elsewhere
     const by = all.filter(p => p.id === byId)[0];
     const target = all.filter(p => p.id === targetId)[0];
 
