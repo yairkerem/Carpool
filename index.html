@@ -607,16 +607,25 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     <input id="e-date" type="date">
   </div>
 
+  <!-- Not type="time". That control draws its own clock from the browser's UI
+       language, which on a phone set to English is a 12-hour one with AM/PM —
+       on a board where every other time is 24-hour, and with nothing the page
+       can set to change it: neither lang="he" nor the phone's own 24-hour
+       setting reaches it. Plain text, read the same forgiving way the title
+       is, is 24-hour everywhere. -->
   <div class="two">
     <div class="field">
       <label for="e-time">שעת הלוך</label>
-      <input id="e-time" type="time">
+      <input id="e-time" type="text" dir="ltr" inputmode="numeric" pattern="[0-9:]*"
+             maxlength="5" autocomplete="off" placeholder="16:00">
     </div>
     <div class="field">
       <label for="e-back">שעת חזרה</label>
-      <input id="e-back" type="time">
+      <input id="e-back" type="text" dir="ltr" inputmode="numeric" pattern="[0-9:]*"
+             maxlength="5" autocomplete="off" placeholder="18:15">
     </div>
   </div>
+  <p class="hint" style="margin-top:-6px">שעון 24 שעות. אפשר לכתוב 16:00, 1600 או 16.</p>
 
   <div class="field">
     <label for="e-place">איפה</label>
@@ -714,7 +723,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 35;
+const APP_VERSION = 36;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1688,6 +1697,34 @@ function hhmm(h, m){
   return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
 }
 
+/* One field, one time — the same shapes the title accepts, since somebody who
+ * has learnt that 1600 works there will type it here too.
+ *
+ * '' for an empty field, null for something typed that is not a time. Those
+ * are different answers: empty is a leg with no time yet, which is allowed,
+ * and null is a mistake worth stopping the save for. "16:3" is null rather
+ * than a guess between 16:03 and 16:30 — guessing wrong sends a parent an
+ * hour early or half an hour late. */
+function readTime(s){
+  const t = String(s || '').trim().replace(/[.,״"']/g, ':');
+  if (!t) return '';
+  let h, m, mt;
+  if ((mt = t.match(/^(\d{1,2}):(\d{2})$/))){ h = +mt[1]; m = +mt[2]; }
+  else if ((mt = t.match(/^(\d{1,2})$/))){ h = +mt[1]; m = 0; }
+  else if ((mt = t.match(/^(\d{1,2})(\d{2})$/))){ h = +mt[1]; m = +mt[2]; }
+  else return null;
+  if (h > 23 || m > 59) return null;
+  return hhmm(h, m);
+}
+
+/* Tidies on the way out of the field, so "1600" becomes 16:00 while the
+ * parent is still looking at it. Nonsense is left exactly as typed — rewriting
+ * it would hide the mistake instead of showing it. */
+function tidyTime(id){
+  const v = readTime($(id).value);
+  if (v) $(id).value = v;
+}
+
 /* HH:MM and HH.MM — written as a time, so read as one with few questions. */
 function scanWritten(text){
   const out = [];
@@ -1990,13 +2027,23 @@ async function saveEvent(){
   if (!title){ say('edit-msg', 'צריך שם לאירוע.', 'err'); return; }
   if (!date){ say('edit-msg', 'צריך תאריך.', 'err'); return; }
 
+  /* The text fields do their own validating now that the browser is not doing
+     it for us. A leg with no time is fine; a leg with "17:9" in it is not. */
+  const time = readTime($('e-time').value);
+  const back = readTime($('e-back').value);
+  if (time === null || back === null){
+    say('edit-msg', 'שעה לא ברורה. אפשר לכתוב 16:00, 1600 או 16.', 'err');
+    (time === null ? $('e-time') : $('e-back')).focus();
+    return;
+  }
+
   const base = {
     id: state.editing ? state.editing.id : '',
     title: title,
     date: date,
-    time: $('e-time').value,
+    time: time,
     place: $('e-place').value.trim(),
-    backTime: $('e-back').value,
+    backTime: back,
     note: $('e-note').value.trim(),
     createdBy: state.me ? state.me.id : ''
   };
@@ -2608,6 +2655,8 @@ $('b-delete').onclick = deleteEvent;
 
 $('e-title').addEventListener('input', watchTitle);
 $('e-title').addEventListener('blur', tidyTitle);
+$('e-time').addEventListener('blur', () => tidyTime('e-time'));
+$('e-back').addEventListener('blur', () => tidyTime('e-back'));
 
 /* Setting .value from script fires no input event, so these only ever hear
    the parent — which is exactly when the guessing should stop for that one
