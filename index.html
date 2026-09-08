@@ -543,6 +543,10 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
       <button type="button" id="b-new-group">יצירת קבוצה</button>
       <button type="button" id="b-forget" hidden>התנתקות מהקבוצה</button>
     </div>
+    <!-- The update button's own answer. It used to go to the message line up
+         by the password field, which on a phone is off the top of the screen
+         from here — you pressed a button and nothing appeared to happen. -->
+    <div id="update-msg" class="msg" hidden style="margin-top:10px"></div>
   </div>
 </section>
 
@@ -703,7 +707,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 32;
+const APP_VERSION = 33;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -2138,6 +2142,7 @@ function openSetup(message){
 
   $('claim-box').hidden = true;      // a stale chooser must not outlive its question
   say('setup-msg', message || '', message ? 'err' : '');
+  say('update-msg', '');             // nor a previous visit's update answer
   show('setup');
 }
 
@@ -2462,8 +2467,12 @@ function takeUpdateFlag(){
   }
 }
 
+/* Said after the reload, on a settings screen opened from the top — so the
+ * answer is at the bottom of a page nobody has scrolled. Bring it into view,
+ * or it is a message delivered to an empty room. */
 function sayUpdated(){
-  say('setup-msg', 'האפליקציה עודכנה לגרסה ' + APP_VERSION + '.', 'ok');
+  say('update-msg', 'האפליקציה עודכנה לגרסה ' + APP_VERSION + '.', 'ok');
+  $('about-sect').scrollIntoView({ block:'nearest' });
 }
 
 /* A worker that has just been fetched spends a moment installing before it
@@ -2487,17 +2496,17 @@ function waitForWaiting(reg, ms){
  * the parent to go back to the board and press something else — which is two
  * screens and a sentence to explain, for a thing that should be one tap. */
 async function checkUpdate(){
-  if (!swReg){ say('setup-msg', 'עדכונים אינם נתמכים בדפדפן הזה.', 'err'); return; }
+  if (!swReg){ say('update-msg', 'עדכונים אינם נתמכים בדפדפן הזה.', 'err'); return; }
 
   busy('b-check-update', 'update-spin', 'update-label', true, 'בודק…');
-  say('setup-msg', '');
+  say('update-msg', '');
   try {
     await swReg.update();
 
     const waiting = await waitForWaiting(swReg, 15000);
     if (waiting){
       busy('b-check-update', 'update-spin', 'update-label', true, 'מתקין…');
-      say('setup-msg', 'נמצאה גרסה חדשה. האפליקציה תיטען מחדש…', 'ok');
+      say('update-msg', 'נמצאה גרסה חדשה. האפליקציה תיטען מחדש…', 'ok');
       /* The reload happens on controllerchange, which fires once the new
          worker takes over — so nothing more to do here. */
       markUpdating();
@@ -2519,7 +2528,7 @@ async function checkUpdate(){
       const fresh = await navigator.serviceWorker.register('sw.js?v=' + live);
       const w = await waitForWaiting(fresh, 25000);
       if (w){
-        say('setup-msg', 'מתקין גרסה ' + live + '. האפליקציה תיטען מחדש…', 'ok');
+        say('update-msg', 'מתקין גרסה ' + live + '. האפליקציה תיטען מחדש…', 'ok');
         markUpdating();
         w.postMessage({ type:'SKIP_WAITING' });
         return;
@@ -2530,12 +2539,12 @@ async function checkUpdate(){
         location.reload();
         return;
       }
-      say('setup-msg', 'גרסה ' + live + ' הותקנה. סגרו את האפליקציה ופתחו שוב.', 'ok');
+      say('update-msg', 'גרסה ' + live + ' הותקנה. סגרו את האפליקציה ופתחו שוב.', 'ok');
     } else {
-      say('setup-msg', 'האפליקציה מעודכנת (גרסה ' + APP_VERSION + ').', 'ok');
+      say('update-msg', 'האפליקציה מעודכנת (גרסה ' + APP_VERSION + ').', 'ok');
     }
   } catch (e) {
-    say('setup-msg', 'בדיקת העדכון נכשלה. בדקו את החיבור.', 'err');
+    say('update-msg', 'בדיקת העדכון נכשלה. בדקו את החיבור.', 'err');
   } finally {
     /* Skipped on the update path: that one is on its way to a reload, and
        putting the label back would flash "up to date" on the way out. */
