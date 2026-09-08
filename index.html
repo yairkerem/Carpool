@@ -369,6 +369,15 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 .place-row span{flex:1;overflow-wrap:anywhere}
 .place-add{display:flex;gap:8px}
 .place-add input{flex:1}
+/* Its own rule rather than .rowbtns': this one stands beside a field rather
+   than among other buttons, so it takes the field's 11px corner rather than
+   the 10px a row of buttons uses. No vertical padding — the flex row stretches
+   it to exactly the height of the input next to it. */
+.place-add button{
+  border:1px solid var(--line);background:transparent;color:var(--ink);
+  border-radius:11px;padding:0 16px;font-size:14px;cursor:pointer;white-space:nowrap;
+}
+.place-add button:active{background:var(--line)}
 
 .msg{padding:11px 13px;border-radius:11px;font-size:14px;margin-bottom:14px;overflow-wrap:anywhere}
 .msg.err{background:#fee2e2;color:#991b1b}
@@ -772,7 +781,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 40;
+const APP_VERSION = 41;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
