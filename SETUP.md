@@ -199,30 +199,29 @@ That one is yours alone. It is what stops somebody who has the app's address
 from filling your Drive with groups, so it never goes in a WhatsApp message.
 Without it this deployment simply hosts the one group it already has.
 
-**Make a group.** There is no screen for it yet; it is one request. Paste this
-into the browser console on any page, filling in the three values:
+**Make a group.** In the app: the group name at the top of the board →
+**יצירת קבוצה חדשה**, or the **יצירת קבוצה** button in settings. Fill in the
+server address, your `HOST_SECRET`, a name for the group, and a secret for it —
+there is a button that invents a good one.
 
-```js
-await fetch('YOUR_EXEC_URL', {
-  method: 'POST',
-  headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-  body: JSON.stringify({
-    action: 'newGroup',
-    hostSecret: 'YOUR_HOST_SECRET',
-    name: 'חוג שחייה',
-    secret: 'a-long-secret-for-this-group'
-  })
-}).then(r => r.json())
-```
+It answers with a six-character code, and offers two things: **שיתוף הפרטים**,
+which writes the joining message for you, and **הצטרפות עכשיו**, which takes you
+straight in as the group's first member and therefore its admin.
 
-It answers with a six-character code. Send the parents of that group three
-things: the app's address, the code, and that group's secret. They enter all
-three on the setup screen.
+The host secret is typed each time and never stored on the device.
+
+Parents of that group need three things: the app's address, the code, and the
+group's secret. They enter all three on the setup screen.
 
 **Joining more than one.** A parent with children in two carpools taps the
 group's name at the top of the board and chooses **+ הצטרפות לקבוצה**. Both
 then live on the same phone, and the same name at the top switches between
 them. Each keeps its own board, its own colour for you, and its own admin.
+
+**Naming them for yourself.** Two groups can easily both be called "כדורגל",
+which is no help to the one parent in both. Settings has a **כינוי לקבוצה** —
+it replaces the name at the top and in the switcher, it takes effect as you
+type, and it never leaves the device. Nobody else in the group sees it.
 
 **The group you already had** needs nothing done to it. The first time the new
 backend runs it gives that group a home in the `Groups` tab, using the name and

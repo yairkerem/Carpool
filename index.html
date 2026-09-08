@@ -397,6 +397,8 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 .rowbtns{display:flex;gap:8px;flex-wrap:wrap}
 .setting{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:600}
 .setting input{width:72px;flex:none;padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:var(--card);text-align:center;font-weight:700}
+.linkish{border:0;background:transparent;padding:0;cursor:pointer;
+         color:var(--brand);font:inherit;font-weight:600;text-decoration:underline}
 .rowbtns button{
   border:1px solid var(--line);background:transparent;color:var(--ink);
   border-radius:10px;padding:8px 13px;font-size:14px;cursor:pointer;
@@ -452,6 +454,15 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     <input id="i-backend" type="url" dir="ltr" inputmode="url" autocomplete="off"
            autocapitalize="off" spellcheck="false">
     <p class="hint">הכתובת של הקבוצה שלכם, ממי שהקים אותה. מסתיימת ב-<code>/exec</code>.</p>
+  </div>
+
+  <!-- Local to this device and never sent anywhere. Two groups called
+       "כדורגל" are two groups called "כדורגל" on the switcher, which is no use
+       to the one parent who is in both. -->
+  <div class="field" id="nick-field">
+    <label for="i-nick">כינוי לקבוצה</label>
+    <input id="i-nick" type="text" dir="auto" maxlength="30">
+    <p class="hint" id="nick-hint">רק אצלכם במכשיר — ההורים האחרים לא רואים אותו.</p>
   </div>
 
   <div class="field">
@@ -524,6 +535,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
         <span id="update-spin" class="spin" hidden></span>
         <span id="update-label">עדכון האפליקציה</span>
       </button>
+      <button type="button" id="b-new-group">יצירת קבוצה</button>
       <button type="button" id="b-forget" hidden>התנתקות מהקבוצה</button>
     </div>
   </div>
@@ -620,12 +632,73 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 </section>
 
 
+<!-- ============================ creating a group ============================
+     For whoever hosts the backend. Everybody else is handed a code and a
+     secret and never comes here. -->
+<section id="s-newgroup" class="screen">
+  <header class="bar">
+    <button id="b-ng-back" class="iconbtn" aria-label="חזרה">→</button>
+    <div class="bar-title"><b>יצירת קבוצה</b></div>
+  </header>
+
+  <p class="lede">למי שמארח את השרת. בסוף תקבלו קוד קבוצה — אותו ואת הסיסמה
+    שולחים להורים.</p>
+
+  <div class="field">
+    <label for="ng-backend">כתובת השרת</label>
+    <input id="ng-backend" type="url" dir="ltr" inputmode="url" autocomplete="off"
+           autocapitalize="off" spellcheck="false">
+  </div>
+
+  <div class="field">
+    <label for="ng-host">סיסמת המארח</label>
+    <input id="ng-host" type="password" autocomplete="off" autocapitalize="off"
+           spellcheck="false">
+    <p class="hint">ה-<code>HOST_SECRET</code> מ-Script Properties. שלכם בלבד —
+      היא לא נשלחת להורים ולא נשמרת במכשיר.</p>
+  </div>
+
+  <div class="field">
+    <label for="ng-name">שם הקבוצה</label>
+    <input id="ng-name" type="text" dir="auto" placeholder="כדורגל כיתה ג׳">
+    <p class="hint">מה שכל ההורים בקבוצה יראו בראש המסך.</p>
+  </div>
+
+  <div class="field">
+    <label for="ng-secret">הסיסמה המשותפת של הקבוצה</label>
+    <input id="ng-secret" type="text" dir="ltr" autocomplete="off"
+           autocapitalize="off" spellcheck="false">
+    <p class="hint">לפחות 8 תווים. זו הסיסמה שתשלחו להורים —
+      <button type="button" id="b-ng-gen" class="linkish">הגרילו אחת</button>.</p>
+  </div>
+
+  <div id="ng-msg" class="msg" hidden></div>
+
+  <div class="actions">
+    <button id="b-ng-create" class="btn">
+      <span id="ng-spin" class="spin" hidden></span>
+      <span id="ng-label">יצירת הקבוצה</span>
+    </button>
+  </div>
+
+  <div class="sect" id="ng-done" hidden>
+    <h3>הקבוצה נוצרה</h3>
+    <p class="hint">שלחו להורים את שלושת אלה. בלי הקוד והסיסמה אי אפשר להיכנס.</p>
+    <p class="hint mono" id="ng-code"></p>
+    <div class="rowbtns" style="margin-top:10px">
+      <button type="button" id="b-ng-share">שיתוף הפרטים</button>
+      <button type="button" id="b-ng-join">הצטרפות עכשיו</button>
+    </div>
+  </div>
+</section>
+
+
 <script>
 'use strict';
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 26;
+const APP_VERSION = 27;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -881,6 +954,14 @@ function iAmAdmin(){
    should not have to wait for Apps Script to wake up. */
 function here(){ return state.list[state.i] || null; }
 
+/* What to call a group on this device. The nickname wins because it is the
+ * reason it exists: a parent in two carpools both called "כדורגל" needs to
+ * tell them apart, and the group's own name is decided by somebody else. */
+function groupLabel(m){
+  if (!m) return 'Carpool';
+  return m.nick || m.name || 'קבוצה';
+}
+
 /* Every membership, and which one is showing. Written together so the two can
  * never disagree about which group the app thinks it is in. */
 function persist(){
@@ -1014,7 +1095,7 @@ function paintSwitcher(){
   box.textContent = '';
   state.list.forEach(function (m, n){
     const b = el('button', 'switch-item' + (n === state.i ? ' on' : ''),
-      m.name || 'קבוצה');
+      groupLabel(m));
     b.type = 'button';
     b.onclick = () => { box.hidden = true; if (n !== state.i) useGroup(n); };
     box.appendChild(b);
@@ -1024,6 +1105,11 @@ function paintSwitcher(){
   add.type = 'button';
   add.onclick = () => { box.hidden = true; joinGroup(); };
   box.appendChild(add);
+
+  const make = el('button', 'switch-item add', 'יצירת קבוצה חדשה');
+  make.type = 'button';
+  make.onclick = () => { box.hidden = true; openNewGroup(); };
+  box.appendChild(make);
 }
 
 /* Opens settings with everything blank, so joining a second group cannot be
@@ -1033,8 +1119,109 @@ function joinGroup(){
   openSetup('');
 }
 
+/* ---- creating a group (the host only) -------------------------- */
+let created = null;      // what the last successful creation handed back
+
+function openNewGroup(){
+  $('ng-backend').value = state.backend || '';
+  $('ng-host').value = '';
+  $('ng-name').value = '';
+  $('ng-secret').value = '';
+  $('ng-done').hidden = true;
+  created = null;
+  say('ng-msg', '');
+  show('newgroup');
+}
+
+/* Long, random, and nothing anybody has to invent under pressure. The host is
+ * about to paste this into a message, not memorise it. */
+function randomSecret(){
+  const abc = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s = '';
+  for (let i = 0; i < 20; i++) s += abc.charAt(Math.floor(Math.random() * abc.length));
+  return s;
+}
+
+async function createGroup(){
+  const backend = $('ng-backend').value.trim();
+  const host = $('ng-host').value.trim();
+  const name = $('ng-name').value.trim();
+  const secret = $('ng-secret').value.trim();
+
+  if (!looksLikeBackend(backend)){
+    say('ng-msg', 'הכתובת צריכה להיות של Web App ולהסתיים ב-/exec.', 'err'); return;
+  }
+  if (!host){ say('ng-msg', 'צריך את סיסמת המארח.', 'err'); return; }
+  if (!name){ say('ng-msg', 'צריך שם לקבוצה.', 'err'); return; }
+  if (secret.length < 8){
+    say('ng-msg', 'הסיסמה של הקבוצה צריכה להיות באורך 8 תווים לפחות.', 'err'); return;
+  }
+
+  busy('b-ng-create', 'ng-spin', 'ng-label', true, 'יוצר…');
+  say('ng-msg', '');
+  try {
+    const r = await api({
+      action:'newGroup', hostSecret: host, name: name, secret: secret
+    }, 25000, backend);
+
+    if (!r.ok){
+      const why = {
+        'no-host-secret': 'לא הוגדר HOST_SECRET בשרת, ולכן אי אפשר ליצור קבוצות. ' +
+                          'הוסיפו אותו ב-Script Properties ופרסמו גרסה חדשה.',
+        'unauthorized': 'סיסמת המארח שגויה.',
+        'secret-too-short': 'הסיסמה של הקבוצה קצרה מדי.'
+      }[r.error];
+      say('ng-msg', why || ('היצירה נכשלה: ' + (r.error || 'שגיאה')), 'err');
+      return;
+    }
+
+    created = { backend: backend, code: r.group, secret: secret, name: name };
+    $('ng-code').textContent =
+      'קוד: ' + r.group + '\nסיסמה: ' + secret;
+    $('ng-done').hidden = false;
+    say('ng-msg', 'הקבוצה "' + name + '" נוצרה.', 'ok');
+    $('ng-done').scrollIntoView({ block:'nearest' });
+  } catch (err) {
+    say('ng-msg', netMessage(err), 'err');
+  } finally {
+    busy('b-ng-create', 'ng-spin', 'ng-label', false, 'יצירת הקבוצה');
+  }
+}
+
+/* The message a host would otherwise have to write themselves, three times,
+ * getting one of the three values wrong once. */
+function shareGroup(){
+  if (!created) return;
+  const link = location.origin + location.pathname;
+  const text = [
+    'הצטרפו לקבוצת ההסעות "' + created.name + '":',
+    '',
+    link,
+    '',
+    'קוד הקבוצה: ' + created.code,
+    'סיסמה משותפת: ' + created.secret,
+    '',
+    'בכניסה הראשונה ממלאים שם, צבע, ואת שני אלה.'
+  ].join('\n');
+
+  if (navigator.share){ navigator.share({ text: text }).catch(() => {}); return; }
+  window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+}
+
+/* Straight into joining what was just made — the host is its first member and
+ * therefore its admin, and typing the code back in by hand would be silly. */
+function joinCreated(){
+  if (!created) return;
+  joinGroup();
+  $('i-backend').value = created.backend;
+  $('i-group').value = created.code;
+  $('i-secret').value = created.secret;
+  $('i-nick').value = '';
+  $('i-name').focus();
+}
+
 function render(){
-  $('group-name').textContent = state.group || 'Carpool';
+  $('group-name').textContent = groupLabel(here());
   paintSwitcher();
 
   const chip = $('me-chip');
@@ -1848,6 +2035,10 @@ function openSetup(message){
   $('setup-bar').querySelector('b').textContent = state.joining ? 'הצטרפות לקבוצה' : 'הגדרות';
   $('connect-label').textContent = state.joining ? 'הצטרפות' : (connected ? 'שמירה' : 'התחברות');
 
+  $('i-nick').value = state.joining ? '' : ((here() || {}).nick || '');
+  $('nick-hint').textContent = state.joining
+    ? 'רק אצלכם במכשיר — הורים אחרים לא רואים אותו.'
+    : ('רק אצלכם במכשיר. השם שכל ההורים רואים: ' + (state.group || '—'));
   $('i-backend').value = state.joining ? '' : state.backend;
   $('i-group').value = state.joining ? '' : (state.groupId || '');
   $('i-secret').value = state.joining ? '' : state.secret;
@@ -1859,13 +2050,16 @@ function openSetup(message){
   $('group-sect').hidden = !connected || !iAmAdmin();
   $('i-drivers').value = state.driversWanted || DEFAULT_DRIVERS_WANTED;
 
-  const here = state.parents.filter(p => !p.removed);
-  $('people-sect').hidden = !connected || !here.length;
+  /* Not `here` — that is the function returning the active membership, and a
+     const of the same name puts it in the temporal dead zone for the whole of
+     this function, so every call above this line throws. */
+  const members = state.parents.filter(p => !p.removed);
+  $('people-sect').hidden = !connected || !members.length;
   $('people-note').hidden = !iAmAdmin();
 
   const people = $('people-list');
   people.textContent = '';
-  for (const p of here){
+  for (const p of members){
     const row = el('div', 'person');
     row.appendChild(personChip(p, true));
     if (p.admin) row.appendChild(el('span', 'badge', 'מנהל/ת'));
@@ -1941,7 +2135,8 @@ async function registerMe(extra){
        before codes existed quietly acquires one the first time it connects. */
     const entry = {
       backend: state.backend, groupId: state.groupId, secret: state.secret,
-      name: state.group || '', me: state.me, board: (here() || {}).board || null
+      name: state.group || '', nick: $('i-nick').value.trim(),
+      me: state.me, board: (here() || {}).board || null
     };
     if (state.joining){
       state.list.push(entry);
@@ -2279,6 +2474,24 @@ $('b-connect').onclick = connect;
 $('b-setup-back').onclick = () => { show(state.setupReturn || 'setup'); render(); };
 $('b-forget').onclick = forget;
 $('b-drivers-save').onclick = saveDriversWanted;
+
+$('b-new-group').onclick = openNewGroup;
+$('b-ng-back').onclick = () => { show(state.list.length ? 'list' : 'setup'); render(); };
+$('b-ng-create').onclick = createGroup;
+$('b-ng-gen').onclick = () => { $('ng-secret').value = randomSecret(); };
+$('b-ng-share').onclick = shareGroup;
+$('b-ng-join').onclick = joinCreated;
+
+/* A nickname is this device's own note to itself, so it needs no network and
+   no save button — it takes effect the moment it is typed. */
+$('i-nick').addEventListener('input', () => {
+  const m = here();
+  if (!m || state.joining) return;
+  m.nick = $('i-nick').value.trim();
+  persist();
+  $('group-name').textContent = groupLabel(m);
+  paintSwitcher();
+});
 $('b-check-update').onclick = checkUpdate;
 $('b-claim-new').onclick = () => registerMe({ force: true });
 
