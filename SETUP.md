@@ -234,11 +234,20 @@ Every group is reached by its code, with no default and no exception. A phone
 that has not been given the code yet is told so plainly and asked for it; its
 secret and everything else stay as they were.
 
-**Changing a group's code.** `recodeGroup('oldcode')` from the editor gives a
-group a fresh one and moves all of its rows across. The secret and the members
-are untouched; everyone re-enters the code once. There is no way to do this
-from the app, on purpose — it logs every member out until they have the new
-code, which is not a button anybody should find by accident.
+**Finding a group's code.** Run `listGroups` from the editor — it prints every
+group and its code. `testSetup` prints the same alongside members and events,
+and the `Groups` tab of the spreadsheet has it in the `id` column.
+
+**Changing a group's code.** Select `recodeGroup` in the editor and press Run.
+It gives the group a fresh code and moves all of its rows across; the secret
+and the members are untouched, and everyone re-enters the code once. With more
+than one group it will print the list and ask you to name one — the Run button
+cannot pass arguments, so call it as `recodeGroup('oldcode')` from the console
+in that case.
+
+There is no way to do this from the app, on purpose: it logs every member out
+until they have the new code, which is not a button anybody should find by
+accident.
 
 ## Optional: the nightly nudge
 

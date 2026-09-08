@@ -29,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 8;
+const BACKEND_VERSION = 9;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -142,6 +142,24 @@ function stampRows(from, to) {
   });
 }
 
+/* Everything a maintenance function has to say, said in the one place anybody
+ * looks. A function run from the editor that returns quietly down one of its
+ * paths reads as a function that did nothing at all. */
+function say_(msg) {
+  Logger.log(msg);
+  return msg;
+}
+
+/** Every group and its code. Run it from the editor whenever you need one. */
+function listGroups() {
+  migrate();
+  const rows = allGroups();
+  if (!rows.length) return say_('no groups yet');
+  return say_('groups:\n' + rows.map(function (g) {
+    return '  ' + g.id + '   ' + (g.name || '(unnamed)');
+  }).join('\n'));
+}
+
 /* Give an existing group a fresh code — run from the editor, not from the app.
  *
  * There is one deployment in the world that has a group called "main", from
@@ -149,27 +167,41 @@ function stampRows(from, to) {
  * This is how it stops being special. Everyone in the group re-enters the new
  * code once; nothing else about them changes.
  *
- *     recodeGroup('main')
+ * With one group, select it in the editor and press Run — the Run button
+ * passes no argument, and one group needs none. With several, call it from
+ * another function or the console: recodeGroup('oldcode')
  */
 function recodeGroup(oldId) {
   return withLock(function () {
     const sh = sheet('Groups', GROUP_COLS);
     const rows = readAll(sh, GROUP_COLS);
-    const row = rows.filter(g => g.id === oldId)[0];
-    if (!row) return 'no group with the code ' + oldId;
+    if (!rows.length) return say_('there are no groups to recode');
 
+    /* The editor's Run button cannot pass an argument, and the editor is
+       where this gets run. With a single group there is nothing to be
+       ambiguous about, so no argument means that one. */
+    const row = oldId
+      ? rows.filter(g => g.id === oldId)[0]
+      : (rows.length === 1 ? rows[0] : null);
+
+    if (!row) {
+      return say_(oldId
+        ? 'no group has the code "' + oldId + '"'
+        : ('this deployment has ' + rows.length + ' groups, so say which:\n' +
+           rows.map(g => "    recodeGroup('" + g.id + "')   " + (g.name || '')).join('\n')));
+    }
+
+    const was = row.id;
     const taken = rows.map(g => g.id);
     let id = groupCode();
     while (taken.indexOf(id) >= 0) id = groupCode();
 
     row.id = id;
     writeRow(sh, GROUP_COLS, row);
-    stampRows(oldId, id);
+    stampRows(was, id);
 
-    const msg = (row.name || oldId) + ' is now ' + id +
-      '  — give that code to its parents; their secret is unchanged.';
-    Logger.log(msg);
-    return msg;
+    return say_((row.name || was) + ':  ' + was + '  ->  ' + id +
+      '\ngive that code to its parents. Their secret has not changed.');
   });
 }
 
