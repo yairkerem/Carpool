@@ -92,45 +92,23 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   settings as an invitation — the app's address, the group's code and its
   secret, which is everything a new parent has to type.
 
-  The invitation is **five messages, not one**. The parent receiving it taps
-  the link but has to *copy* the code and the secret, and a chat app copies a
-  whole message rather than the part you dragged over — so
-  `קוד הקבוצה: kx7m2p` pasted whole is not a code. So: the link, then a
-  heading, then the code alone, then a heading, then the secret alone. Long
-  press either bare one and it is right.
+  The invitation is **one link**. Everything a phone needs to join — the
+  backend's address, the group's code and its secret — rides in the URL's
+  fragment, so tapping it opens the app with all three filled in and the parent
+  types only their name. Nothing is copied, dictated or typed wrong.
 
-  One button walks all five. Not one press — `navigator.share` needs a fresh
-  gesture, so the first call spends it and the rest are refused, and the
-  share sheet asks who to send to every time regardless. The button sends as
-  many as the browser allows and then holds the next, naming it. A cancelled
-  send stays where it is rather than skipping one, which on this list would
-  mean a parent holding a heading and no code.
-- **An admin, to keep the list honest.** The first parent to register is the
-  admin — whoever set the group up, without being told to claim anything — and
-  can remove a member from settings. Removing frees every future leg that
-  parent had claimed, because a family that has left still showing as driving
-  next Tuesday is worse than not removing them at all. Past rides are left
-  exactly as they were: a record of who drove, not a plan that can go wrong.
+  In the fragment (`#`) rather than the query string, because a fragment never
+  leaves the browser: the secret reaches no server and no access log on the way,
+  and the app strips it out of the address bar the moment it has read it. It is
+  no more exposed in the message than the secret already was, and a good deal
+  less exposed than sitting in a chat as a line somebody has to select.
 
-  The admin also names the group, sets how many drivers a leg wants before it
-  counts as sorted, and keeps the group's list of places.
+  Tapping the link for a group the phone is already in switches to that board
+  and says so, rather than offering to join it twice. A mangled link is simply
+  not an invitation — the app opens as it always would.
 
-  Removing is housekeeping rather than a lock. Everyone in a group shares one
-  secret, so a removed parent who kept it could register again under a new
-  name. To shut somebody out properly, change that group's secret and give the
-  new one to everybody else.
-- **The places the group goes, saved once.** A carpool visits the same four or
-  five venues all season, and typing one out every week is how a board ends up
-  with three spellings of one pitch and a parent at the wrong gate. The admin
-  writes them down in settings; everybody else gets them as buttons under the
-  *איפה* field and taps one. The field stays free text underneath — the week
-  the training moves somewhere else is exactly the week a closed list would be
-  in the way — and the saved names feed the title parser too, so a venue is
-  understood from a typed line before anyone has ever met there.
-- **Android's back button closes the screen, not the app.** Settings, the
-  editor and the create-a-group screen each carry a history entry, so back
-  goes up one exactly as the arrow in the corner does. At the board it is the
-  phone's press again, which is what leaving an app should take.
+  Settings still writes the code and the secret out, with copy buttons, for a
+  parent who cannot use a link.
 - Works offline on the last loaded board, and installs to a home screen on
   both Android and iOS.
 

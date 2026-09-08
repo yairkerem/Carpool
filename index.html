@@ -394,13 +394,13 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
   direction:ltr;text-align:start;color:var(--muted);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
-.share-step .step-mark{margin-inline-start:auto;color:var(--muted)}
-.share-step.sent{border-color:var(--done);background:var(--done-soft)}
-.share-step.sent .step-mark{color:var(--done)}
-/* The one the button is holding, so the receipt and the button agree. */
-.share-step.next{border-color:var(--brand)}
-.share-step.next .step-mark{color:var(--brand)}
-#b-share-next{width:100%;margin:0}
+.share-step .copy{
+  margin-inline-start:auto;border:1px solid var(--line);background:transparent;
+  color:var(--muted);border-radius:9px;padding:6px 11px;font-size:13px;
+  cursor:pointer;white-space:nowrap;
+}
+.share-step .copy:active{background:var(--line)}
+#b-share-send{width:100%;margin:0}
 
 .msg{padding:11px 13px;border-radius:11px;font-size:14px;margin-bottom:14px;overflow-wrap:anywhere}
 .msg.err{background:#fee2e2;color:#991b1b}
@@ -614,20 +614,15 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     </div>
 
     <div id="share-steps" class="share-steps" hidden>
-      <p class="hint">חמש הודעות לאותו הורה, בזו אחר זו — הקוד והסיסמה נשלחים
-        כל אחד בהודעה נפרדת משלו, כדי שאפשר יהיה להעתיק אותם בלחיצה ארוכה. יש
-        אפליקציות שלא מאפשרות לסמן רק חלק מהודעה.</p>
-      <button type="button" id="b-share-next" class="btn">
-        <span id="share-next-label">שליחה</span>
-      </button>
-      <p class="hint" id="share-progress"></p>
+      <button type="button" id="b-share-send" class="btn">שליחת הזמנה</button>
+      <p class="hint">הודעה אחת עם קישור. מי שלוחץ עליו מקבל את האפליקציה עם
+        הקוד והסיסמה כבר מולאים, וצריך רק להוסיף שם — אין מה להעתיק ואין מה
+        להקליד.</p>
+      <p class="hint">הקישור מכיל את הסיסמה של הקבוצה, אז שלחו אותו רק למי
+        שאמור/ה להיות בה.</p>
+
+      <p class="hint" style="margin-top:14px">אם צריך להזין ידנית:</p>
       <div id="share-list"></div>
-      <div class="rowbtns" style="margin-top:4px">
-        <button type="button" id="b-share-all">הכל בהודעה אחת</button>
-        <button type="button" id="b-share-reset" hidden>מהתחלה</button>
-      </div>
-      <p class="hint">ההזמנה כוללת את כתובת האפליקציה, קוד הקבוצה והסיסמה
-        המשותפת — שלחו רק למי שאמור/ה להיות בקבוצה.</p>
     </div>
   </div>
 
@@ -822,7 +817,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 45;
+const APP_VERSION = 46;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1508,19 +1503,16 @@ async function createGroup(){
  * getting one of the three values wrong once. */
 function shareGroup(){
   if (!created) return;
-  const link = location.origin + location.pathname;
-  const text = [
+  /* The same invitation the group itself sends later, so a host never hands
+     out a code and a secret to be typed either. */
+  const url = location.origin + location.pathname + '#j=' +
+    b64url(JSON.stringify({ b: created.backend, g: created.code, s: created.secret }));
+  shareText([
     'הצטרפו לקבוצת ההסעות "' + created.name + '":',
+    url,
     '',
-    link,
-    '',
-    'קוד הקבוצה: ' + created.code,
-    'סיסמה משותפת: ' + created.secret,
-    '',
-    'בכניסה הראשונה ממלאים שם, צבע, ואת שני אלה.'
-  ].join('\n');
-
-  shareText(text).catch(() => {});
+    'הקישור פותח את האפליקציה עם כל הפרטים מוכנים — צריך רק להוסיף שם.'
+  ].join('\n')).catch(() => {});
 }
 
 /* Everything a parent needs to join the group this phone is looking at: where
@@ -1537,35 +1529,97 @@ function shareGroup(){
  * all three in one and they can lift out none of them, because "קוד הקבוצה:
  * kx7m2p" pasted whole is not a code. So the second and third messages are
  * the bare values and nothing else, and the first one says they are coming. */
-function shareParts(){
-  return [
-    { label:'הקישור לאפליקציה', text: [
-        'הצטרפו לקבוצת ההסעות "' + (state.group || 'הסעות') + '":',
-        location.origin + location.pathname,
-        '',
-        'בהודעות הבאות: קוד הקבוצה והסיסמה המשותפת, כל אחד בהודעה נפרדת אחרי ' +
-        'הכותרת שלו — כדי שאפשר יהיה להעתיק אותו בלחיצה ארוכה.'
-      ].join('\n') },
-    { label:'הכותרת "קוד הקבוצה"',   text: 'קוד הקבוצה:' },
-    { label:'הקוד',                  text: state.groupId,  bare:true },
-    { label:'הכותרת "סיסמה משותפת"', text: 'סיסמה משותפת:' },
-    { label:'הסיסמה',                text: state.secret,   bare:true }
-  ];
+/* An invitation is one link, and the parent who taps it types nothing but
+ * their name.
+ *
+ * This used to be the address, the code and the secret written out for the
+ * other parent to copy — which meant either one message they could not take
+ * the code out of (a chat app copies whole messages, not the words you
+ * dragged over) or a run of separate messages, one per value. Both were the
+ * app making its own bookkeeping somebody else's problem.
+ *
+ * IN THE FRAGMENT, deliberately. Everything after # stays in the browser and
+ * is never sent to the server, so the group's secret reaches no access log on
+ * the way — not GitHub's, not anyone's. The app takes it out of the address
+ * bar the moment it has read it. */
+function inviteUrl(){
+  const payload = JSON.stringify({ b: state.backend, g: state.groupId, s: state.secret });
+  return location.origin + location.pathname + '#j=' + b64url(payload);
 }
 
-/* Still offered whole, because not every app is WhatsApp and three sends to
- * the same person is three sends. Its own wording, not the first message's:
- * that one announces two messages to come, and here there are none. */
-function shareJoinAll(){
+/* Base64url: letters, digits, - and _ only. Chat apps decide for themselves
+ * where a link stops, and a + or a / in the middle is where some of them
+ * decide wrong — leaving the parent with half an invitation. */
+function b64url(text){
+  const bytes = new TextEncoder().encode(text);
+  let bin = '';
+  bytes.forEach(b => { bin += String.fromCharCode(b); });
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function unb64url(text){
+  const pad = text.replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(pad + '==='.slice((pad.length + 3) % 4));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+/* What a tapped invitation does. Everything is filled in but the name — that
+ * one is theirs to give, and it is what the other parents will see. */
+function takeInvite(invite){
+  /* Already in it, on this phone. Somebody has re-sent the link, or it was
+     tapped twice; put them on that board rather than through a form that
+     would make a second membership of the same group. */
+  const mine = state.list.findIndex(m => m.groupId === invite.groupId &&
+                                         m.backend === invite.backend);
+  if (mine >= 0){
+    useGroup(mine);
+    banner('כבר הצטרפתם לקבוצה הזאת.');
+    return;
+  }
+
+  joinGroup();                        // the blank form, and joining rather than editing
+  $('i-backend').value = invite.backend;
+  $('i-group').value = invite.groupId;
+  $('i-secret').value = invite.secret;
+  $('i-nick').value = '';
+  say('setup-msg', 'הוזמנתם לקבוצה. נשאר רק להוסיף שם — כך שאר ההורים יזהו אתכם.', 'ok');
+  $('i-name').focus();
+}
+
+function shareInvite(){
+  if (!state.groupId || !state.secret) return;
   shareText([
     'הצטרפו לקבוצת ההסעות "' + (state.group || 'הסעות') + '":',
-    location.origin + location.pathname,
+    inviteUrl(),
     '',
-    'קוד הקבוצה: ' + state.groupId,
-    'סיסמה משותפת: ' + state.secret,
-    '',
-    'בכניסה הראשונה ממלאים שם, צבע, ואת שני אלה.'
+    'הקישור פותח את האפליקציה עם כל הפרטים מוכנים — צריך רק להוסיף שם.'
   ].join('\n')).catch(() => {});
+}
+
+/* What was in the link, or null. Anything malformed is simply not an
+ * invitation: a half-read one would put a parent in no group with a message
+ * about why, which is worse than the link plainly not working. */
+function readInvite(){
+  const m = /[#&]j=([A-Za-z0-9\-_]+)/.exec(location.hash || '');
+  if (!m) return null;
+  try {
+    const v = JSON.parse(unb64url(m[1]));
+    if (!v || !v.b || !v.g || !v.s) return null;
+    return { backend: String(v.b), groupId: String(v.g), secret: String(v.s) };
+  } catch (err) {
+    return null;
+  }
+}
+
+/* Out of the address bar as soon as it is read: it is a secret, and a URL is
+ * the most copied, shared and screenshotted thing on a phone. replaceState
+ * rather than assigning location.hash, which would add a history entry and
+ * put the back button one press out. */
+function dropInvite(){
+  try { history.replaceState(null, '', location.pathname + location.search); }
+  catch (err) { /* nothing lost that matters */ }
 }
 
 /* The phone's own share sheet where there is one, because it knows which apps
@@ -2799,73 +2853,54 @@ function paintPlacePicks(){
   }
 }
 
-/* How far down the five we have got. One button rather than five, because the
- * sender is doing one thing — inviting a parent — and should not have to know
- * which message is which.
- *
- * It cannot be ONE press, though, however much it should be. navigator.share
- * needs a fresh gesture: the first call spends it and the rest are refused,
- * and the share sheet asks who to send to every time in any case. So the
- * button sends as many as the browser will allow from one press and then
- * stands there holding the next one, saying which it is. */
-let shareAt = 0;
-
-async function runShare(){
-  const seq = shareParts();
-  while (shareAt < seq.length){
-    try {
-      await shareText(seq[shareAt].text);
-    } catch (err) {
-      /* Cancelled, or the browser wants a press of its own before the next
-         sheet. Either way this one did not go: stay on it. */
-      break;
-    }
-    shareAt++;
-    paintShareSteps();
-  }
-  paintShareSteps();
-}
-
+/* The link does the whole job, so this is only what is left over: the two
+ * values written out, for a parent who cannot use a link — an old phone, a
+ * chat app that mangles them, somebody standing next to you with the app
+ * already open. Copy buttons rather than "select this bit of that message",
+ * which is the thing that did not work. */
 function paintShareSteps(){
-  const seq = shareParts();
-  const done = shareAt >= seq.length;
-
-  $('b-share-next').hidden = done;
-  $('b-share-reset').hidden = !shareAt;
-  if (!done){
-    $('share-next-label').textContent =
-      'שליחת הודעה ' + (shareAt + 1) + ' מתוך ' + seq.length + ': ' + seq[shareAt].label;
-  }
-  $('share-progress').textContent = done
-    ? 'כל ' + seq.length + ' ההודעות נשלחו.'
-    : (shareAt ? 'נשלחו ' + shareAt + '. בוחרים את אותו הורה בכל פעם.'
-               : 'בוחרים את אותו הורה בכל אחת מההודעות.');
-
-  /* The list underneath is the receipt, not the control: what has gone, what
-     is next, and what each one actually says. */
   const box = $('share-list');
   box.textContent = '';
-  seq.forEach(function (part, i){
-    const sent = i < shareAt;
-    const row = el('div', 'share-step' + (sent ? ' sent' : (i === shareAt ? ' next' : '')));
-    row.appendChild(el('span', 'step-label', (i + 1) + '. ' + part.label));
-    /* The bare ones are shown in full — they are short, and the sender may
-       well be reading them out to somebody standing next to them. */
-    if (part.bare) row.appendChild(el('span', 'step-val', part.text));
-    row.appendChild(el('b', 'step-mark', sent ? '✓' : (i === shareAt ? '←' : '')));
+  [['קוד הקבוצה', state.groupId], ['סיסמה משותפת', state.secret]].forEach(function (pair){
+    const row = el('div', 'share-step');
+    row.appendChild(el('span', 'step-label', pair[0]));
+    row.appendChild(el('span', 'step-val', pair[1]));
+    const b = el('button', 'copy', 'העתקה');
+    b.type = 'button';
+    b.onclick = () => copyValue(pair[1], b);
+    row.appendChild(b);
     box.appendChild(row);
   });
 }
 
-function resetShare(){
-  shareAt = 0;
-  paintShareSteps();
+function copyValue(text, btn){
+  const said = ok => {
+    btn.textContent = ok ? 'הועתק' : 'לא הצליח';
+    setTimeout(() => { btn.textContent = 'העתקה'; }, 1500);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(() => said(true), () => said(false));
+    return;
+  }
+  /* No clipboard API — an http origin, or an older browser. The old trick
+     still works everywhere that is true of. */
+  const box = document.createElement('textarea');
+  box.value = text;
+  box.setAttribute('readonly', '');
+  box.style.position = 'fixed';
+  box.style.opacity = '0';
+  document.body.appendChild(box);
+  box.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+  box.remove();
+  said(ok);
 }
 
 function toggleShareSteps(){
   const box = $('share-steps');
   if (box.hidden){
-    resetShare();
+    paintShareSteps();
     box.hidden = false;
     box.scrollIntoView({ block:'nearest' });
   } else {
@@ -3144,9 +3179,7 @@ $('i-place-new').addEventListener('keydown', e => {
 });
 
 $('b-share-join').onclick = toggleShareSteps;
-$('b-share-next').onclick = runShare;
-$('b-share-reset').onclick = resetShare;
-$('b-share-all').onclick = shareJoinAll;
+$('b-share-send').onclick = shareInvite;
 $('b-join-group').onclick = joinGroup;
 $('b-new-group').onclick = openNewGroup;
 $('b-ng-back').onclick = () => { show(state.list.length ? 'list' : 'setup'); render(); };
@@ -3266,6 +3299,16 @@ function migrateStorage(){
   const updated = takeUpdateFlag();
 
   registerSW();
+
+  /* Arrived by an invitation link. It takes precedence over whatever this
+     phone was last looking at: somebody has just tapped it, and that is the
+     most recent thing they asked for. */
+  const invite = readInvite();
+  dropInvite();
+  if (invite){
+    takeInvite(invite);
+    return;
+  }
 
   if (!state.list.length){
     openSetup('');
