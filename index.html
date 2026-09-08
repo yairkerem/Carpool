@@ -377,6 +377,8 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 .claimbtn:active{background:var(--brand-soft);border-color:var(--brand)}
 .claimbtn .hint{margin:0;margin-inline-start:auto;direction:ltr}
 .rowbtns{display:flex;gap:8px;flex-wrap:wrap}
+.setting{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:600}
+.setting input{width:72px;flex:none;padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:var(--card);text-align:center;font-weight:700}
 .rowbtns button{
   border:1px solid var(--line);background:transparent;color:var(--ink);
   border-radius:10px;padding:8px 13px;font-size:14px;cursor:pointer;
@@ -458,6 +460,22 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
       <span id="connect-spin" class="spin" hidden></span>
       <span id="connect-label">התחברות</span>
     </button>
+  </div>
+
+  <!-- Admins only. It changes what every parent in the group sees, so it sits
+       with the other thing only an admin can do rather than in their own
+       personal settings above. -->
+  <div class="sect" id="group-sect" hidden>
+    <h3>הגדרות הקבוצה</h3>
+    <label class="setting" for="i-drivers">
+      <span>כמה נהגים דרושים לכל נסיעה</span>
+      <input id="i-drivers" type="number" min="1" max="6" step="1" inputmode="numeric">
+    </label>
+    <p class="hint">נסיעה שהגיעה למספר הזה מסומנת בירוק. אפשר תמיד להצטרף גם
+      לנסיעה מלאה — זה רק צובע אותה.</p>
+    <div class="rowbtns" style="margin-top:10px">
+      <button type="button" id="b-drivers-save">שמירת ההגדרה</button>
+    </div>
   </div>
 
   <div class="sect" id="people-sect" hidden>
@@ -578,14 +596,16 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 23;
+const APP_VERSION = 25;
 
-/* How many drivers a leg wants before it counts as sorted. Two, because one
- * car rarely holds a squad and a spare driver is what stops a single cancelled
- * lift becoming a problem. Nobody is prevented from joining a full leg — this
- * only changes how it is coloured, so that a board can be read for what still
- * needs somebody. */
-const DRIVERS_WANTED = 2;
+/* How many drivers a leg wants before it counts as sorted. The group's own
+ * admin sets it — a squad that needs three cars and two siblings sharing one
+ * lift are not the same problem — and this is only what to assume until the
+ * backend has said. Nobody is prevented from joining a full leg; it changes
+ * how a leg is coloured, so the board can be read for what still needs
+ * somebody rather than for what is already fine. */
+const DEFAULT_DRIVERS_WANTED = 2;
+const MAX_DRIVERS_WANTED = 6;
 
 const HE_DAYS   = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 
@@ -602,6 +622,7 @@ const state = {
   backend:'', secret:'',
   me:null,            // {id,name,color,phone} — id is issued by the backend
   group:'', parents:[], events:[],
+  driversWanted:DEFAULT_DRIVERS_WANTED,   // the group's own, once the backend says
   offline:false,
   setupReturn:null,   // where the gear was opened from
   editing:null        // the event being edited, or null for a new one
@@ -813,7 +834,8 @@ function iAmAdmin(){
 function saveBoard(){
   try {
     localStorage.setItem(LS.board, JSON.stringify({
-      group: state.group, parents: state.parents, events: state.events
+      group: state.group, driversWanted: state.driversWanted,
+      parents: state.parents, events: state.events
     }));
   } catch (e) { /* a full quota is not worth failing the render over */ }
 }
@@ -824,6 +846,7 @@ function loadBoard(){
     if (!raw) return;
     const b = JSON.parse(raw);
     state.group = b.group || '';
+    state.driversWanted = b.driversWanted || DEFAULT_DRIVERS_WANTED;
     state.parents = b.parents || [];
     state.events = b.events || [];
   } catch (e) { /* ignore a corrupted cache; the network will replace it */ }
@@ -849,6 +872,7 @@ async function refresh(quiet){
        before the app can say which backend it is actually talking to — that
        number is the first thing anyone asks for when something looks wrong. */
     if (r.version) state.backendVersion = r.version;
+    if (r.driversWanted) state.driversWanted = r.driversWanted;
 
     /* Reading the board is still allowed after removal — the secret is the
        group's, not each parent's — so the app has to notice on its own that
@@ -1072,7 +1096,7 @@ function legBlock(ev, leg, past){
   /* A finished leg with no driver is not a problem to be solved, so it does
      not get the amber ring that means "somebody deal with this" — nor the
      green that means "no need". */
-  const full = !past && drivers.length >= DRIVERS_WANTED;
+  const full = !past && drivers.length >= (state.driversWanted || DEFAULT_DRIVERS_WANTED);
   const box = el('section', 'leg ' + (isTo ? 'to' : 'back') +
     (drivers.length || past ? '' : ' open') + (full ? ' full' : ''));
 
@@ -1716,6 +1740,9 @@ function openSetup(message){
   pickedColor = (state.me && state.me.color) || COLORS[0];
   paintSwatches();
 
+  $('group-sect').hidden = !connected || !iAmAdmin();
+  $('i-drivers').value = state.driversWanted || DEFAULT_DRIVERS_WANTED;
+
   const here = state.parents.filter(p => !p.removed);
   $('people-sect').hidden = !connected || !here.length;
   $('people-note').hidden = !iAmAdmin();
@@ -1913,6 +1940,32 @@ async function kick(p){
   }
 }
 
+async function saveDriversWanted(){
+  const n = Math.round(Number($('i-drivers').value));
+  if (!(n >= 1 && n <= MAX_DRIVERS_WANTED)){
+    say('setup-msg', 'מספר הנהגים צריך להיות בין 1 ל-' + MAX_DRIVERS_WANTED + '.', 'err');
+    return;
+  }
+  say('setup-msg', 'שומר…', 'ok');
+  try {
+    const r = await api({ action:'drivers', n: n, by: state.me.id }, 25000);
+    if (!r.ok){
+      if (rejected(r.error)) return;
+      say('setup-msg', r.error === 'not-admin'
+        ? 'רק מנהל/ת הקבוצה יכול/ה לשנות את זה.'
+        : ('השמירה נכשלה: ' + (r.error || 'שגיאה')), 'err');
+      return;
+    }
+    state.driversWanted = r.driversWanted;
+    saveBoard();
+    /* "עם 1 נהגים" is not a sentence anybody writes. */
+    say('setup-msg', 'מעכשיו נסיעה נחשבת מסודרת עם ' +
+      (r.driversWanted === 1 ? 'נהג אחד' : r.driversWanted + ' נהגים') + '.', 'ok');
+  } catch (err) {
+    say('setup-msg', netMessage(err), 'err');
+  }
+}
+
 function forget(){
   if (!confirm('להתנתק מהקבוצה? הכתובת, הסיסמה והשם יימחקו מהמכשיר הזה.')) return;
   for (const k of Object.keys(LS)) localStorage.removeItem(LS[k]);
@@ -2074,6 +2127,7 @@ async function checkUpdate(){
 $('b-connect').onclick = connect;
 $('b-setup-back').onclick = () => { show(state.setupReturn || 'setup'); render(); };
 $('b-forget').onclick = forget;
+$('b-drivers-save').onclick = saveDriversWanted;
 $('b-check-update').onclick = checkUpdate;
 $('b-claim-new').onclick = () => registerMe({ force: true });
 

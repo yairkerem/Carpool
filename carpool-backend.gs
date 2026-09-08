@@ -25,7 +25,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 5;
+const BACKEND_VERSION = 6;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -61,7 +61,35 @@ const LEGS = { to: 'toDriver', back: 'backDriver' };
 const RIDERS = { to: 'toRiders', back: 'backRiders' };
 
 /* Actions that change the board, and so are closed to a removed parent. */
-const WRITES = ['me', 'save', 'remove', 'claim', 'release', 'ride', 'kick'];
+const WRITES = ['me', 'save', 'remove', 'claim', 'release', 'ride', 'kick', 'drivers'];
+
+/* How many drivers a leg wants before the app calls it sorted. A group sets
+ * its own — a squad that needs three cars and a pair of siblings sharing one
+ * lift are not the same problem — and this is the fallback for a group that
+ * never has. Kept in a Script Property rather than a sheet: it is one number
+ * for the whole group, and it belongs with the group's other settings. */
+const DEFAULT_DRIVERS_WANTED = 2;
+const MAX_DRIVERS_WANTED = 6;
+
+function driversWanted() {
+  const n = Math.round(Number(PROPS.getProperty('DRIVERS_WANTED')));
+  return (n >= 1 && n <= MAX_DRIVERS_WANTED) ? n : DEFAULT_DRIVERS_WANTED;
+}
+
+/* The admin's to set, like removing a member — it changes what the whole group
+ * sees, so it is not everybody's to change. */
+function setDriversWanted(n, byId) {
+  return withLock(function () {
+    const by = parents().filter(p => p.id === byId)[0];
+    if (!by || by.admin !== '1' || by.removed === '1') return { ok: false, error: 'not-admin' };
+
+    const v = Math.round(Number(n));
+    if (!(v >= 1 && v <= MAX_DRIVERS_WANTED)) return { ok: false, error: 'out-of-range' };
+
+    PROPS.setProperty('DRIVERS_WANTED', String(v));
+    return { ok: true, driversWanted: v };
+  });
+}
 
 
 // ---------- entry points ----------
@@ -95,6 +123,7 @@ function doPost(e) {
       case 'release': return json(release(req.id, req.leg, req.parentId));
       case 'ride':    return json(setRider(req.id, req.leg, req.parentId, req.riding));
       case 'kick':    return json(kickParent(req.id, req.by));
+      case 'drivers': return json(setDriversWanted(req.n, req.by));
       default:        return json({ ok: false, error: 'unknown action: ' + req.action });
     }
   } catch (err) {
@@ -243,6 +272,7 @@ function ping() {
     ok: true,
     version: BACKEND_VERSION,
     group: PROPS.getProperty('GROUP_NAME') || '',
+    driversWanted: driversWanted(),
     sheet: ss.getName(),
     sheetUrl: ss.getUrl()
   };
@@ -289,6 +319,7 @@ function state() {
     ok: true,
     version: BACKEND_VERSION,
     group: PROPS.getProperty('GROUP_NAME') || '',
+    driversWanted: driversWanted(),
     parents: people,
     events: events,
     now: new Date().toISOString()
@@ -639,6 +670,8 @@ function testSetup() {
     out.push('               Extensions > Apps Script.');
   }
 
+  out.push('Drivers wanted ' + driversWanted() + ' per leg' +
+    (PROPS.getProperty('DRIVERS_WANTED') ? '' : '  (default — set it in the app)'));
   out.push('Backend        v' + BACKEND_VERSION);
 
   const text = out.join('\n');
