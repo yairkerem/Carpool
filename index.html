@@ -615,6 +615,9 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
     <div id="share-steps" class="share-steps" hidden>
       <button type="button" id="b-share-send" class="btn">שליחת הזמנה</button>
+      <div class="rowbtns" style="margin-top:8px">
+        <button type="button" id="b-copy-link">העתקת הקישור</button>
+      </div>
       <p class="hint">הודעה אחת עם קישור. מי שלוחץ עליו מקבל את האפליקציה עם
         הקוד והסיסמה כבר מולאים, וצריך רק להוסיף שם — אין מה להעתיק ואין מה
         להקליד.</p>
@@ -817,7 +820,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 47;
+const APP_VERSION = 48;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1513,9 +1516,9 @@ function shareGroup(){
     b64url(JSON.stringify({ b: created.backend, g: created.code, s: created.secret }));
   shareText([
     'הצטרפו לקבוצת ההסעות "' + created.name + '":',
-    url,
+    'הקישור פותח את האפליקציה עם כל הפרטים מוכנים — צריך רק להוסיף שם.',
     '',
-    'הקישור פותח את האפליקציה עם כל הפרטים מוכנים — צריך רק להוסיף שם.'
+    url
   ].join('\n')).catch(() => {});
 }
 
@@ -1597,11 +1600,16 @@ function takeInvite(invite){
 
 function shareInvite(){
   if (!state.groupId || !state.secret) return;
+  /* The link goes LAST, with nothing after it. A chat app decides for itself
+     where a link stops, and deciding that inside a right-to-left paragraph
+     with more Hebrew after it is exactly where one can stop early — taking
+     the #j=… with it and leaving a link that opens an empty app. Nothing
+     following it means nothing to stop short of. */
   shareText([
     'הצטרפו לקבוצת ההסעות "' + (state.group || 'הסעות') + '":',
-    inviteUrl(),
+    'הקישור פותח את האפליקציה עם כל הפרטים מוכנים — צריך רק להוסיף שם.',
     '',
-    'הקישור פותח את האפליקציה עם כל הפרטים מוכנים — צריך רק להוסיף שם.'
+    inviteUrl()
   ].join('\n')).catch(() => {});
 }
 
@@ -2896,9 +2904,13 @@ function paintShareSteps(){
 }
 
 function copyValue(text, btn){
+  /* Whatever this button said before, not a hardcoded "העתקה": the same
+     helper serves the two values and the link, and they are not all called
+     the same thing. */
+  const was = btn.textContent;
   const said = ok => {
     btn.textContent = ok ? 'הועתק' : 'לא הצליח';
-    setTimeout(() => { btn.textContent = 'העתקה'; }, 1500);
+    setTimeout(() => { btn.textContent = was; }, 1500);
   };
   if (navigator.clipboard && navigator.clipboard.writeText){
     navigator.clipboard.writeText(text).then(() => said(true), () => said(false));
@@ -3202,6 +3214,10 @@ $('i-place-new').addEventListener('keydown', e => {
 
 $('b-share-join').onclick = toggleShareSteps;
 $('b-share-send').onclick = shareInvite;
+/* The link on its own, for pasting somewhere the share sheet cannot reach —
+   and for looking at, when an invitation has arrived at the other end broken
+   and the question is whether it left here whole. */
+$('b-copy-link').onclick = () => copyValue(inviteUrl(), $('b-copy-link'));
 $('b-join-group').onclick = joinGroup;
 $('b-new-group').onclick = openNewGroup;
 $('b-ng-back').onclick = () => { show(state.list.length ? 'list' : 'setup'); render(); };
