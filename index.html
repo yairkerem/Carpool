@@ -725,7 +725,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 37;
+const APP_VERSION = 38;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -733,6 +733,12 @@ const APP_VERSION = 37;
  * backend has said. Nobody is prevented from joining a full leg; it changes
  * how a leg is coloured, so the board can be read for what still needs
  * somebody rather than for what is already fine. */
+/* Named, because "שמירה" on a screen that also holds "שמירת הגדרות הקבוצה" is
+ * an invitation to press the wrong one — and the wrong one used to leave the
+ * group's settings behind without a word. It saves both now, but the label
+ * should still say which half is its own. */
+const SAVE_MINE = 'שמירת הפרטים שלי';
+
 const DEFAULT_DRIVERS_WANTED = 2;
 const MAX_DRIVERS_WANTED = 6;
 
@@ -2231,7 +2237,7 @@ function openSetup(message){
   $('setup-h').hidden = canGoBack;
   $('setup-lede').hidden = canGoBack;
   $('setup-bar').querySelector('b').textContent = state.joining ? 'הצטרפות לקבוצה' : 'הגדרות';
-  $('connect-label').textContent = state.joining ? 'הצטרפות' : (connected ? 'שמירה' : 'התחברות');
+  $('connect-label').textContent = state.joining ? 'הצטרפות' : (connected ? SAVE_MINE : 'התחברות');
 
   $('i-nick').value = state.joining ? '' : ((here() || {}).nick || '');
   $('nick-hint').textContent = state.joining
@@ -2347,10 +2353,19 @@ async function registerMe(extra){
     }
     persist();
 
+    /* This is the prominent button on a screen with two of them, so an admin
+       who changed the group's name or its driver count above and pressed save
+       meant that as well. It used to jump straight to the board and leave
+       those behind, saying nothing — the setting simply did not happen. */
+    const also = await pushGroupSettings();
+    if (also === null) return;         // refused: stay put, the reason is up
+
     say('setup-msg', '');
+    saveBoard();
     show('list');
     render();
     await refresh();
+    if (also.length) banner(also.join('. ') + '.');
   } catch (err) {
     /* This used to be a finally with no catch. connect() awaits this call and
        has its own catch, so the first-run path always reported failures — but
@@ -2360,7 +2375,7 @@ async function registerMe(extra){
     say('setup-msg', netMessage(err), 'err');
   } finally {
     busy('b-connect', 'connect-spin', 'connect-label', false,
-      state.setupReturn ? 'שמירה' : 'התחברות');
+      state.setupReturn ? SAVE_MINE : 'התחברות');
   }
 }
 
@@ -2441,7 +2456,7 @@ async function connect(){
     say('setup-msg', netMessage(err), 'err');
   } finally {
     busy('b-connect', 'connect-spin', 'connect-label', false,
-      state.setupReturn ? 'שמירה' : 'התחברות');
+      state.setupReturn ? SAVE_MINE : 'התחברות');
   }
 }
 
@@ -2475,46 +2490,64 @@ async function kick(p){
 /* One button for the whole section, and only what has actually changed is
  * sent. Two buttons for two fields invites saving one and forgetting the
  * other, and this screen is visited rarely enough that nobody would notice. */
-async function saveGroupSettings(){
+/* Sends only what changed, and says nothing itself.
+ *
+ * Returns the list of what it did — empty when there was nothing to send, or
+ * null when something was refused, having already put the reason on screen.
+ * Both save buttons on this page go through here, because a screen with two
+ * of them and one silent about half the form is a screen that loses work. */
+async function pushGroupSettings(){
+  if ($('group-sect').hidden) return [];        // not an admin: nothing to send
+
   const name = $('i-gname').value.trim().replace(/\s+/g, ' ');
   const n = Math.round(Number($('i-drivers').value));
 
-  if (!name){ say('setup-msg', 'לקבוצה צריך שם.', 'err'); return; }
+  if (!name){ say('setup-msg', 'לקבוצה צריך שם.', 'err'); return null; }
   if (!(n >= 1 && n <= MAX_DRIVERS_WANTED)){
     say('setup-msg', 'מספר הנהגים צריך להיות בין 1 ל-' + MAX_DRIVERS_WANTED + '.', 'err');
-    return;
+    return null;
   }
 
-  const renaming = name !== state.group;
-  const recounting = n !== state.driversWanted;
-  if (!renaming && !recounting){ say('setup-msg', 'אין מה לשמור — שום דבר לא השתנה.', 'ok'); return; }
-
-  say('setup-msg', 'שומר…', 'ok');
   const done = [];
+  if (name !== state.group){
+    const r = await api({ action:'rename', name: name, by: state.me.id }, 25000);
+    if (!r.ok){ groupSaveFailed(r); return null; }
+    state.group = r.group;
+    const m = here();
+    if (m){ m.name = r.group; persist(); }
+    done.push('השם עודכן');
+  }
+  if (n !== state.driversWanted){
+    const r = await api({ action:'drivers', n: n, by: state.me.id }, 25000);
+    if (!r.ok){ groupSaveFailed(r); return null; }
+    state.driversWanted = r.driversWanted;
+    /* "עם 1 נהגים" is not a sentence anybody writes. */
+    done.push('נסיעה נחשבת מסודרת עם ' +
+      (r.driversWanted === 1 ? 'נהג אחד' : r.driversWanted + ' נהגים'));
+  }
+  return done;
+}
+
+async function saveGroupSettings(){
+  say('setup-msg', 'שומר…', 'ok');
+  let done;
   try {
-    if (renaming){
-      const r = await api({ action:'rename', name: name, by: state.me.id }, 25000);
-      if (!r.ok) return groupSaveFailed(r);
-      state.group = r.group;
-      const m = here();
-      if (m){ m.name = r.group; persist(); }
-      done.push('השם עודכן');
-    }
-    if (recounting){
-      const r = await api({ action:'drivers', n: n, by: state.me.id }, 25000);
-      if (!r.ok) return groupSaveFailed(r);
-      state.driversWanted = r.driversWanted;
-      /* "עם 1 נהגים" is not a sentence anybody writes. */
-      done.push('נסיעה נחשבת מסודרת עם ' +
-        (r.driversWanted === 1 ? 'נהג אחד' : r.driversWanted + ' נהגים'));
-    }
-    saveBoard();
-    render();
-    openSetup('');
-    say('setup-msg', done.join('. ') + '.', 'ok');
+    done = await pushGroupSettings();
   } catch (err) {
     say('setup-msg', netMessage(err), 'err');
+    return;
   }
+  if (done === null) return;                    // refused, and already said so
+  if (!done.length){ say('setup-msg', 'אין מה לשמור — שום דבר לא השתנה.', 'ok'); return; }
+
+  saveBoard();
+  render();
+  /* Not openSetup(): that repaints the whole screen from state, which would
+     wipe a name or a phone number typed above and not saved yet. Only the two
+     fields this just wrote are put back in step. */
+  $('i-gname').value = state.group || '';
+  $('i-drivers').value = state.driversWanted;
+  say('setup-msg', done.join('. ') + '.', 'ok');
 }
 
 function groupSaveFailed(r){
