@@ -397,7 +397,10 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 .share-step .step-mark{margin-inline-start:auto;color:var(--muted)}
 .share-step.sent{border-color:var(--done);background:var(--done-soft)}
 .share-step.sent .step-mark{color:var(--done)}
-.share-step:active{background:var(--line)}
+/* The one the button is holding, so the receipt and the button agree. */
+.share-step.next{border-color:var(--brand)}
+.share-step.next .step-mark{color:var(--brand)}
+#b-share-next{width:100%;margin:0}
 
 .msg{padding:11px 13px;border-radius:11px;font-size:14px;margin-bottom:14px;overflow-wrap:anywhere}
 .msg.err{background:#fee2e2;color:#991b1b}
@@ -611,11 +614,18 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     </div>
 
     <div id="share-steps" class="share-steps" hidden>
-      <p class="hint">שלוש הודעות לאותו הורה, בזו אחר זו. הן מופרדות כדי שאפשר
-        יהיה להעתיק את הקוד ואת הסיסמה בלחיצה ארוכה — יש אפליקציות שלא מאפשרות
-        לסמן רק חלק מהודעה.</p>
+      <p class="hint">חמש הודעות לאותו הורה, בזו אחר זו — הקוד והסיסמה נשלחים
+        כל אחד בהודעה נפרדת משלו, כדי שאפשר יהיה להעתיק אותם בלחיצה ארוכה. יש
+        אפליקציות שלא מאפשרות לסמן רק חלק מהודעה.</p>
+      <button type="button" id="b-share-next" class="btn">
+        <span id="share-next-label">שליחה</span>
+      </button>
+      <p class="hint" id="share-progress"></p>
       <div id="share-list"></div>
-      <button type="button" id="b-share-all" class="linkish">או: הכל בהודעה אחת</button>
+      <div class="rowbtns" style="margin-top:4px">
+        <button type="button" id="b-share-all">הכל בהודעה אחת</button>
+        <button type="button" id="b-share-reset" hidden>מהתחלה</button>
+      </div>
       <p class="hint">ההזמנה כוללת את כתובת האפליקציה, קוד הקבוצה והסיסמה
         המשותפת — שלחו רק למי שאמור/ה להיות בקבוצה.</p>
     </div>
@@ -812,7 +822,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 44;
+const APP_VERSION = 45;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1529,15 +1539,17 @@ function shareGroup(){
  * the bare values and nothing else, and the first one says they are coming. */
 function shareParts(){
   return [
-    { key:'link', label:'1. הקישור לאפליקציה', text: [
+    { label:'הקישור לאפליקציה', text: [
         'הצטרפו לקבוצת ההסעות "' + (state.group || 'הסעות') + '":',
         location.origin + location.pathname,
         '',
-        'בכניסה הראשונה ממלאים שם וצבע, ואת קוד הקבוצה והסיסמה — שתי ההודעות ' +
-        'הבאות. אפשר להעתיק כל אחת מהן בלחיצה ארוכה.'
+        'בהודעות הבאות: קוד הקבוצה והסיסמה המשותפת, כל אחד בהודעה נפרדת אחרי ' +
+        'הכותרת שלו — כדי שאפשר יהיה להעתיק אותו בלחיצה ארוכה.'
       ].join('\n') },
-    { key:'code',   label:'2. קוד הקבוצה',      text: state.groupId },
-    { key:'secret', label:'3. הסיסמה המשותפת',  text: state.secret }
+    { label:'הכותרת "קוד הקבוצה"',   text: 'קוד הקבוצה:' },
+    { label:'הקוד',                  text: state.groupId,  bare:true },
+    { label:'הכותרת "סיסמה משותפת"', text: 'סיסמה משותפת:' },
+    { label:'הסיסמה',                text: state.secret,   bare:true }
   ];
 }
 
@@ -2787,36 +2799,73 @@ function paintPlacePicks(){
   }
 }
 
-/* Which of the three have gone out this visit. Only a tick beside a step —
- * the app cannot know whether they reached the right chat, and pretending
- * otherwise would be worse than saying nothing. */
-let shareDone = {};
+/* How far down the five we have got. One button rather than five, because the
+ * sender is doing one thing — inviting a parent — and should not have to know
+ * which message is which.
+ *
+ * It cannot be ONE press, though, however much it should be. navigator.share
+ * needs a fresh gesture: the first call spends it and the rest are refused,
+ * and the share sheet asks who to send to every time in any case. So the
+ * button sends as many as the browser will allow from one press and then
+ * stands there holding the next one, saying which it is. */
+let shareAt = 0;
+
+async function runShare(){
+  const seq = shareParts();
+  while (shareAt < seq.length){
+    try {
+      await shareText(seq[shareAt].text);
+    } catch (err) {
+      /* Cancelled, or the browser wants a press of its own before the next
+         sheet. Either way this one did not go: stay on it. */
+      break;
+    }
+    shareAt++;
+    paintShareSteps();
+  }
+  paintShareSteps();
+}
 
 function paintShareSteps(){
+  const seq = shareParts();
+  const done = shareAt >= seq.length;
+
+  $('b-share-next').hidden = done;
+  $('b-share-reset').hidden = !shareAt;
+  if (!done){
+    $('share-next-label').textContent =
+      'שליחת הודעה ' + (shareAt + 1) + ' מתוך ' + seq.length + ': ' + seq[shareAt].label;
+  }
+  $('share-progress').textContent = done
+    ? 'כל ' + seq.length + ' ההודעות נשלחו.'
+    : (shareAt ? 'נשלחו ' + shareAt + '. בוחרים את אותו הורה בכל פעם.'
+               : 'בוחרים את אותו הורה בכל אחת מההודעות.');
+
+  /* The list underneath is the receipt, not the control: what has gone, what
+     is next, and what each one actually says. */
   const box = $('share-list');
   box.textContent = '';
-  for (const part of shareParts()){
-    const b = el('button', 'share-step' + (shareDone[part.key] ? ' sent' : ''));
-    b.type = 'button';
-    b.appendChild(el('span', 'step-label', part.label));
-    /* The value itself, so the sender can see what is about to go — and read
-       it out if the parent is standing next to them anyway. */
-    if (part.key !== 'link') b.appendChild(el('span', 'step-val', part.text));
-    b.appendChild(el('b', 'step-mark', shareDone[part.key] ? '✓' : '⤴'));
-    b.onclick = () => {
-      shareText(part.text)
-        .then(() => { shareDone[part.key] = true; paintShareSteps(); })
-        .catch(() => {});          // cancelled: it did not go, so do not tick
-    };
-    box.appendChild(b);
-  }
+  seq.forEach(function (part, i){
+    const sent = i < shareAt;
+    const row = el('div', 'share-step' + (sent ? ' sent' : (i === shareAt ? ' next' : '')));
+    row.appendChild(el('span', 'step-label', (i + 1) + '. ' + part.label));
+    /* The bare ones are shown in full — they are short, and the sender may
+       well be reading them out to somebody standing next to them. */
+    if (part.bare) row.appendChild(el('span', 'step-val', part.text));
+    row.appendChild(el('b', 'step-mark', sent ? '✓' : (i === shareAt ? '←' : '')));
+    box.appendChild(row);
+  });
+}
+
+function resetShare(){
+  shareAt = 0;
+  paintShareSteps();
 }
 
 function toggleShareSteps(){
   const box = $('share-steps');
   if (box.hidden){
-    shareDone = {};
-    paintShareSteps();
+    resetShare();
     box.hidden = false;
     box.scrollIntoView({ block:'nearest' });
   } else {
@@ -3095,6 +3144,8 @@ $('i-place-new').addEventListener('keydown', e => {
 });
 
 $('b-share-join').onclick = toggleShareSteps;
+$('b-share-next').onclick = runShare;
+$('b-share-reset').onclick = resetShare;
 $('b-share-all').onclick = shareJoinAll;
 $('b-join-group').onclick = joinGroup;
 $('b-new-group').onclick = openNewGroup;

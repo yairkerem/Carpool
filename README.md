@@ -92,13 +92,19 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   settings as an invitation — the app's address, the group's code and its
   secret, which is everything a new parent has to type.
 
-  The invitation is **three messages, not one**. The parent receiving it taps
-  the link but has to *copy* the other two, and a chat app copies a whole
-  message rather than the part you dragged over — so `קוד הקבוצה: kx7m2p`
-  pasted whole is not a code. The second and third messages are therefore the
-  bare values and nothing else, and the first says they are coming. Sent one
-  at a time, each ticked once it has gone, with all-in-one still there for
-  apps where it does not matter.
+  The invitation is **five messages, not one**. The parent receiving it taps
+  the link but has to *copy* the code and the secret, and a chat app copies a
+  whole message rather than the part you dragged over — so
+  `קוד הקבוצה: kx7m2p` pasted whole is not a code. So: the link, then a
+  heading, then the code alone, then a heading, then the secret alone. Long
+  press either bare one and it is right.
+
+  One button walks all five. Not one press — `navigator.share` needs a fresh
+  gesture, so the first call spends it and the rest are refused, and the
+  share sheet asks who to send to every time regardless. The button sends as
+  many as the browser allows and then holds the next, naming it. A cancelled
+  send stays where it is rather than skipping one, which on this list would
+  mean a parent holding a heading and no code.
 - **An admin, to keep the list honest.** The first parent to register is the
   admin — whoever set the group up, without being told to claim anything — and
   can remove a member from settings. Removing frees every future leg that
