@@ -697,7 +697,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 28;
+const APP_VERSION = 29;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -931,6 +931,7 @@ function rejected(error){
   const m = here();
   if (m){ m.secret = ''; persist(); }
   state.secret = '';
+  credsChanged();
   openSetup(state.groupId
     ? 'קוד הקבוצה או הסיסמה נדחו. בדקו את שניהם והזינו מחדש.'
     : 'הקבוצה הזו מזוהה עכשיו בקוד. בקשו אותו ממנהל/ת הקבוצה והזינו כאן.');
@@ -945,6 +946,7 @@ function signedOut(message){
   state.me = null;
   state.parents = [];
   state.events = [];
+  credsChanged();
   openSetup(message);
 }
 
@@ -1007,6 +1009,7 @@ function useGroup(i){
   state.backend = m.backend;
   state.secret = m.secret;
   state.groupId = m.groupId || '';
+  credsChanged();
   state.me = m.me;
   state.offline = false;
   loadBoard();
@@ -1020,12 +1023,31 @@ function useGroup(i){
 
 let refreshing = false;
 
+/* Bumped whenever the credentials change: a different group, a re-entered
+ * secret, a sign-out. A reply that was asked for under an older number is
+ * about credentials nobody is using any more, and acting on it is how a slow
+ * failure from a moment ago erases what has just been typed. */
+let credEpoch = 0;
+function credsChanged(){ credEpoch++; }
+
 async function refresh(quiet){
   if (refreshing) return;
+  /* Nothing to ask with. A request carrying no secret can only come back
+     refused, and a refusal is never information — it is just noise arriving
+     late enough to talk over whatever is being typed. */
+  if (!state.secret || !state.backend) return;
   refreshing = true;
   $('b-refresh').classList.add('spinning');
+  const epoch = credEpoch;
   try {
     const r = await api({ action:'state' }, 25000);
+
+    /* The board was asked for with credentials that have since been replaced
+       — most likely because this request is what sent the parent to the setup
+       screen, and they have already put the new ones in. Its answer is about
+       the old ones and is worth nothing now. */
+    if (epoch !== credEpoch) return;
+
     if (!r.ok){
       if (rejected(r.error)) return;
       banner('השרת החזיר שגיאה: ' + (r.error || 'לא ידוע'));
@@ -2223,10 +2245,12 @@ async function connect(){
     const savedGroup = state.groupId;
     state.secret = secret;
     state.groupId = $('i-group').value.trim().toLowerCase();
+    credsChanged();          // anything already in flight is about the old pair
     const p = await api({ action:'ping' }, 25000, backend);
     if (!p.ok){
       state.secret = saved;
       state.groupId = savedGroup;
+      credsChanged();
       say('setup-msg', p.error === 'unauthorized'
         ? 'קוד הקבוצה או הסיסמה שגויים.'
         : ('השרת החזיר שגיאה: ' + (p.error || 'לא ידוע')), 'err');
@@ -2539,12 +2563,18 @@ $('i-secret').addEventListener('keydown', e => { if (e.key === 'Enter') connect(
 
 /* Coming back to the app is the moment the board is most likely to be stale —
    somebody claimed a leg while the phone was in a pocket. */
+/* Not while the setup screen is up: the board is not on screen to be
+   refreshed, and a failure from one would talk over what is being typed. */
+function idle(){
+  return state.me && !$('s-setup').classList.contains('active');
+}
+
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && state.me) refresh(true);
+  if (document.visibilityState === 'visible' && idle()) refresh(true);
 });
-window.addEventListener('online', () => { if (state.me) refresh(true); });
+window.addEventListener('online', () => { if (idle()) refresh(true); });
 setInterval(() => {
-  if (document.visibilityState === 'visible' && state.me) refresh(true);
+  if (document.visibilityState === 'visible' && idle()) refresh(true);
 }, 60000);
 
 /* ---- boot ----------------------------------------------------- */
