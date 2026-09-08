@@ -351,6 +351,25 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 }
 .sw[aria-pressed="true"]{box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--ink)}
 
+/* The group's saved places, under the field they fill in. Big enough to hit
+   with a thumb in a car park, and wrapping rather than scrolling — a place
+   that is off the edge of a strip is a place nobody taps. */
+.picks{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.pick{
+  border:1px solid var(--line);background:transparent;color:var(--ink);
+  border-radius:999px;padding:8px 13px;font-size:14px;cursor:pointer;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.pick[aria-pressed="true"]{background:var(--brand-soft);color:var(--brand);border-color:var(--brand);font-weight:700}
+.pick:active{background:var(--line)}
+
+/* The same list in settings, where each row can be taken out again. */
+.places-edit{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
+.place-row{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:11px;padding:9px 12px}
+.place-row span{flex:1;overflow-wrap:anywhere}
+.place-add{display:flex;gap:8px}
+.place-add input{flex:1}
+
 .msg{padding:11px 13px;border-radius:11px;font-size:14px;margin-bottom:14px;overflow-wrap:anywhere}
 .msg.err{background:#fee2e2;color:#991b1b}
 .msg.ok{background:var(--brand-soft);color:var(--brand)}
@@ -521,6 +540,19 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     </label>
     <p class="hint">נסיעה שהגיעה למספר הזה מסומנת בירוק. אפשר תמיד להצטרף גם
       לנסיעה מלאה — זה רק צובע אותה.</p>
+
+    <div class="field" style="margin-top:16px">
+      <label for="i-place-new">המקומות של הקבוצה</label>
+      <div id="places-edit" class="places-edit"></div>
+      <div class="place-add">
+        <input id="i-place-new" type="text" dir="auto" maxlength="60"
+               autocomplete="off" placeholder="מגרש הדשא">
+        <button type="button" id="b-place-add">הוספה</button>
+      </div>
+      <p class="hint">כל ההורים יראו אותם מתחת לשדה "איפה", ויבחרו בלחיצה אחת.
+        אפשר תמיד לכתוב מקום אחר במקום לבחור.</p>
+    </div>
+
     <div class="rowbtns" style="margin-top:10px">
       <button type="button" id="b-drivers-save">שמירת הגדרות הקבוצה</button>
     </div>
@@ -643,6 +675,10 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
   <div class="field">
     <label for="e-place">איפה</label>
     <input id="e-place" type="text" dir="auto" placeholder="שם המקום או הכתובת">
+    <!-- The group's own places, one tap each. Not a <select>: the field stays
+         free text, because the one week the training moves to a different
+         pitch is exactly the week a closed list would be in the way. -->
+    <div id="place-picks" class="picks" hidden></div>
   </div>
 
   <div class="field">
@@ -736,7 +772,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 39;
+const APP_VERSION = 40;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -783,6 +819,7 @@ const state = {
   backend:'', secret:'', groupId:'',
   me:null,            // {id,name,color,phone} — id is issued by the backend
   group:'', parents:[], events:[],
+  places:[],          // the admin's list of where this group meets
   driversWanted:DEFAULT_DRIVERS_WANTED,   // the group's own, once the backend says
 
   offline:false,
@@ -1116,7 +1153,7 @@ function saveBoard(){
   if (!m) return;
   m.board = {
     group: state.group, driversWanted: state.driversWanted,
-    parents: state.parents, events: state.events
+    places: state.places, parents: state.parents, events: state.events
   };
   persist();
 }
@@ -1125,6 +1162,7 @@ function loadBoard(){
   const b = (here() || {}).board;
   state.group = (b && b.group) || (here() || {}).name || '';
   state.driversWanted = (b && b.driversWanted) || DEFAULT_DRIVERS_WANTED;
+  state.places = (b && b.places) || [];
   state.parents = (b && b.parents) || [];
   state.events = (b && b.events) || [];
 }
@@ -1201,6 +1239,7 @@ async function refresh(quiet){
        number is the first thing anyone asks for when something looks wrong. */
     if (r.version) state.backendVersion = r.version;
     if (r.driversWanted) state.driversWanted = r.driversWanted;
+    if (r.places) state.places = r.places;
 
     /* Reading the board is still allowed after removal — the secret is the
        group's, not each parent's — so the app has to notice on its own that
@@ -1539,6 +1578,7 @@ function duplicateEvent(ev){
   resetAuto(ev.title);
   say('title-read', '');
   echoDate();
+  paintPlacePicks();
 }
 
 /* Both legs are always drawn, even when nobody has filled in a time. An event
@@ -1917,6 +1957,10 @@ function findTimes(text){
  * the title is enough. The word list is only for the first time. */
 function knownPlaces(){
   const seen = {};
+  /* The admin's list first, then anywhere the group has actually met. Both
+     are places this group goes; the list is only the ones somebody thought
+     worth writing down. */
+  for (const p of state.places) if (p) seen[p.trim()] = true;
   for (const e of state.events) if (e.place) seen[e.place.trim()] = true;
   return Object.keys(seen).sort((a, b) => b.length - a.length);   // longest wins
 }
@@ -2073,6 +2117,7 @@ function watchTitle(){
   say('title-read', bits.length ? 'הובן מהשם: ' + bits.join(' · ') : '');
   $('title-read').className = 'hint auto';
   echoDate();                 // a date written in by the guess still says its day
+  paintPlacePicks();          // and a place written in by it shows as chosen
 }
 
 /* Taking the understood words out of the title is left until the parent
@@ -2116,6 +2161,7 @@ function openEdit(ev){
   say('edit-msg', '');
   say('title-read', '');
   echoDate();
+  paintPlacePicks();
 
   /* Seeded with whatever the title already says, so opening an event whose
      name mentions a day or a place does not move it on sight. Only a change
@@ -2262,6 +2308,11 @@ function openSetup(message){
   $('group-sect').hidden = !connected || !iAmAdmin();
   $('i-drivers').value = state.driversWanted || DEFAULT_DRIVERS_WANTED;
   $('i-gname').value = state.group || '';
+  /* A fresh copy each time the screen opens, so backing out of it and coming
+     back does not show yesterday's half-finished edit. */
+  editPlaces = state.places.slice();
+  $('i-place-new').value = '';
+  paintPlacesEdit();
 
   /* Not `here` — that is the function returning the active membership, and a
      const of the same name puts it in the temporal dead zone for the whole of
@@ -2507,6 +2558,80 @@ async function kick(p){
 /* One button for the whole section, and only what has actually changed is
  * sent. Two buttons for two fields invites saving one and forgetting the
  * other, and this screen is visited rarely enough that nobody would notice. */
+/* The settings screen edits a copy. Nothing here reaches the group until the
+ * save button, the same as the name and the driver count beside it — a list
+ * that saved itself on every × would have no undo at all. */
+let editPlaces = [];
+
+function paintPlacesEdit(){
+  const box = $('places-edit');
+  box.textContent = '';
+  if (!editPlaces.length){
+    const empty = el('p', 'hint', 'עדיין אין מקומות ברשימה.');
+    empty.style.margin = '0';
+    box.appendChild(empty);
+    return;
+  }
+  editPlaces.forEach(function (name, i){
+    const row = el('div', 'place-row');
+    row.appendChild(el('span', null, name));
+    const x = el('button', 'kick', '×');
+    x.type = 'button';
+    x.title = 'הסרה מהרשימה';
+    x.setAttribute('aria-label', 'הסרת ' + name + ' מהרשימה');
+    x.onclick = () => { editPlaces.splice(i, 1); paintPlacesEdit(); };
+    row.appendChild(x);
+    box.appendChild(row);
+  });
+}
+
+function addPlace(){
+  const box = $('i-place-new');
+  const name = box.value.trim().replace(/\s+/g, ' ');
+  if (!name) return;
+  if (editPlaces.some(p => p.toLowerCase() === name.toLowerCase())){
+    say('setup-msg', 'המקום הזה כבר ברשימה.', 'err');
+    box.select();
+    return;
+  }
+  editPlaces.push(name);
+  box.value = '';
+  say('setup-msg', '');
+  paintPlacesEdit();
+  box.focus();                       // several in a row is the normal way to fill it
+}
+
+function sameList(a, b){
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
+/* The saved places, under the field, on every parent's phone. Tapping one is
+ * the whole point; the field stays free text underneath. */
+function paintPlacePicks(){
+  const box = $('place-picks');
+  box.textContent = '';
+  box.hidden = !state.places.length;
+  if (box.hidden) return;
+
+  const current = $('e-place').value.trim();
+  for (const name of state.places){
+    const b = el('button', 'pick', name);
+    b.type = 'button';
+    b.setAttribute('aria-pressed', name === current ? 'true' : 'false');
+    b.onclick = () => {
+      /* Tapping the one already in the field clears it, so a place chosen by
+         mistake comes off the same way it went on. */
+      $('e-place').value = (name === $('e-place').value.trim()) ? '' : name;
+      /* Choosing counts as filling it in by hand: the title should stop
+         guessing at this field, exactly as if it had been typed. */
+      auto.touched.place = true;
+      watchTitle();
+      paintPlacePicks();
+    };
+    box.appendChild(b);
+  }
+}
+
 /* Sends only what changed, and says nothing itself.
  *
  * Returns the list of what it did — empty when there was nothing to send, or
@@ -2533,6 +2658,15 @@ async function pushGroupSettings(){
     const m = here();
     if (m){ m.name = r.group; persist(); }
     done.push('השם עודכן');
+  }
+  if (!sameList(editPlaces, state.places)){
+    const r = await api({ action:'places', places: editPlaces, by: state.me.id }, 25000);
+    if (!r.ok){ groupSaveFailed(r); return null; }
+    state.places = r.places || [];
+    editPlaces = state.places.slice();
+    done.push(state.places.length
+      ? 'רשימת המקומות עודכנה (' + state.places.length + ')'
+      : 'רשימת המקומות רוקנה');
   }
   if (n !== state.driversWanted){
     const r = await api({ action:'drivers', n: n, by: state.me.id }, 25000);
@@ -2564,6 +2698,7 @@ async function saveGroupSettings(){
      fields this just wrote are put back in step. */
   $('i-gname').value = state.group || '';
   $('i-drivers').value = state.driversWanted;
+  paintPlacesEdit();
   say('setup-msg', done.join('. ') + '.', 'ok');
 }
 
@@ -2760,6 +2895,13 @@ $('b-setup-back').onclick = () => { show(state.setupReturn || 'setup'); render()
 $('b-forget').onclick = forget;
 $('b-drivers-save').onclick = saveGroupSettings;
 
+$('b-place-add').onclick = addPlace;
+$('i-place-new').addEventListener('keydown', e => {
+  /* Enter in this box adds the place; without it the form would try to
+     submit and the typed name would vanish. */
+  if (e.key === 'Enter'){ e.preventDefault(); addPlace(); }
+});
+
 $('b-join-group').onclick = joinGroup;
 $('b-new-group').onclick = openNewGroup;
 $('b-ng-back').onclick = () => { show(state.list.length ? 'list' : 'setup'); render(); };
@@ -2806,6 +2948,9 @@ $('e-time').addEventListener('blur', () => tidyTime('e-time'));
 $('e-back').addEventListener('blur', () => tidyTime('e-back'));
 $('e-date').addEventListener('input', echoDate);
 $('e-date').addEventListener('blur', tidyDate);
+/* Typing the name of a saved place by hand should light its button, and
+   typing away from it should put it out again. */
+$('e-place').addEventListener('input', paintPlacePicks);
 
 /* Setting .value from script fires no input event, so these only ever hear
    the parent — which is exactly when the guessing should stop for that one

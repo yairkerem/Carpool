@@ -38,10 +38,10 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   field below is optional; fill in as many or as few as you like.
 
   What it reads: `יום` + a day name, plus `שבת`, `היום`, `מחר`, `מחרתיים`; one
-  or two times, the first being the way there; and a place — anywhere the group
-  has met before, matched exactly, or a phrase starting at a venue word like
-  `מגרש`, `אולם`, `בריכה`. `@` marks a place outright when the guessing gets it
-  wrong.
+  or two times, the first being the way there; and a place — one of the group's
+  saved places or anywhere it has met before, matched exactly, or a phrase
+  starting at a venue word like `מגרש`, `אולם`, `בריכה`. `@` marks a place
+  outright when the guessing gets it wrong.
 
   Times take any of `16:00`, `1600` and `16` for four o'clock, `16:30` or
   `1630` for half past, and `16-18`, `1600-1815` or `16:00 עד 18:15` for both
@@ -95,13 +95,21 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   next Tuesday is worse than not removing them at all. Past rides are left
   exactly as they were: a record of who drove, not a plan that can go wrong.
 
-  The admin also names the group and sets how many drivers a leg wants before
-  it counts as sorted.
+  The admin also names the group, sets how many drivers a leg wants before it
+  counts as sorted, and keeps the group's list of places.
 
   Removing is housekeeping rather than a lock. Everyone in a group shares one
   secret, so a removed parent who kept it could register again under a new
   name. To shut somebody out properly, change that group's secret and give the
   new one to everybody else.
+- **The places the group goes, saved once.** A carpool visits the same four or
+  five venues all season, and typing one out every week is how a board ends up
+  with three spellings of one pitch and a parent at the wrong gate. The admin
+  writes them down in settings; everybody else gets them as buttons under the
+  *איפה* field and taps one. The field stays free text underneath — the week
+  the training moves somewhere else is exactly the week a closed list would be
+  in the way — and the saved names feed the title parser too, so a venue is
+  understood from a typed line before anyone has ever met there.
 - Works offline on the last loaded board, and installs to a home screen on
   both Android and iOS.
 

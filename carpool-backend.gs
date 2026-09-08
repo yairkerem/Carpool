@@ -29,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 11;
+const BACKEND_VERSION = 12;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -68,7 +68,8 @@ const RIDERS = { to: 'toRiders', back: 'backRiders' };
  * paste into a WhatsApp message, and a secret, which is not. Both the Events
  * and the Parents tab carry the code — appended at the end, like every column
  * added after the fact. */
-const GROUP_COLS = ['id', 'name', 'secret', 'driversWanted', 'createdAt', 'removed'];
+const GROUP_COLS = ['id', 'name', 'secret', 'driversWanted', 'createdAt', 'removed',
+                    'places'];
 
 /* The group this request is for, resolved once in doPost and read by
  * everything downstream rather than threaded through twenty signatures. Safe
@@ -78,7 +79,7 @@ let CURRENT = null;
 
 /* Actions that change the board, and so are closed to a removed parent. */
 const WRITES = ['me', 'save', 'remove', 'claim', 'release', 'ride', 'kick',
-                'drivers', 'rename'];
+                'drivers', 'rename', 'places'];
 
 /* Ambiguous characters left out: a code gets read off one phone and typed into
  * another, and l/1 and O/0 are where that goes wrong. */
@@ -123,7 +124,8 @@ function migrate() {
     secret: secret,
     driversWanted: PROPS.getProperty('DRIVERS_WANTED') || '',
     createdAt: new Date().toISOString(),
-    removed: ''
+    removed: '',
+    places: ''
   });
 
   stampRows('', id);
@@ -230,7 +232,8 @@ function newGroup(req) {
 
     writeRow(sh, GROUP_COLS, {
       _row: 0, id: id, name: name, secret: secret,
-      driversWanted: '', createdAt: new Date().toISOString(), removed: ''
+      driversWanted: '', createdAt: new Date().toISOString(), removed: '',
+      places: ''
     });
     return { ok: true, group: id, name: name };
   });
@@ -272,6 +275,50 @@ function setGroupName(name, byId) {
     writeRow(sh, GROUP_COLS, row);
     CURRENT = row;
     return { ok: true, group: clean };
+  });
+}
+
+/* Where this group meets. A carpool goes to the same four or five places all
+ * season, and typing "מגרש הדשא, כניסה מזרחית" correctly every week is how a
+ * board ends up with three spellings of one venue and a parent at the wrong
+ * gate. The admin writes them once; everybody else taps.
+ *
+ * It is a list on the group's own row rather than a sheet of its own: it is
+ * five short strings that are always read together and always written whole,
+ * and a tab per setting is a tab to keep in step forever. */
+const MAX_PLACES = 30;
+const MAX_PLACE_LEN = 60;
+
+function groupPlaces() {
+  return parseList(CURRENT && CURRENT.places);
+}
+
+function setPlaces(list, byId) {
+  return withLock(function () {
+    const by = parents().filter(p => p.id === byId)[0];
+    if (!by || by.admin !== '1' || by.removed === '1') return { ok: false, error: 'not-admin' };
+
+    /* Written whole every time, so the cleaning happens here rather than at
+       each edge the app might add one from. */
+    const clean = [];
+    (Array.isArray(list) ? list : []).forEach(function (raw) {
+      const name = String(raw === null || raw === undefined ? '' : raw)
+        .trim().replace(/\s+/g, ' ').slice(0, MAX_PLACE_LEN);
+      if (!name) return;
+      /* Two spellings of one venue is the thing this feature exists to stop,
+         so the list will not hold the same name twice. */
+      if (clean.some(p => p.toLowerCase() === name.toLowerCase())) return;
+      if (clean.length < MAX_PLACES) clean.push(name);
+    });
+
+    const sh = sheet('Groups', GROUP_COLS);
+    const row = readAll(sh, GROUP_COLS).filter(g => g.id === CURRENT.id)[0];
+    if (!row) return { ok: false, error: 'not found' };
+
+    row.places = JSON.stringify(clean);
+    writeRow(sh, GROUP_COLS, row);
+    CURRENT = row;
+    return { ok: true, places: clean };
   });
 }
 
@@ -342,6 +389,7 @@ function doPost(e) {
       case 'kick':    return json(kickParent(req.id, req.by));
       case 'drivers': return json(setDriversWanted(req.n, req.by));
       case 'rename':  return json(setGroupName(req.name, req.by));
+      case 'places':  return json(setPlaces(req.places, req.by));
       default:        return json({ ok: false, error: 'unknown action: ' + req.action });
     }
   } catch (err) {
@@ -492,6 +540,7 @@ function ping() {
     group: CURRENT.name || '',
     groupId: CURRENT.id,
     driversWanted: driversWanted(),
+    places: groupPlaces(),
     sheet: ss.getName(),
     sheetUrl: ss.getUrl()
   };
@@ -540,6 +589,7 @@ function state() {
     group: CURRENT.name || '',
     groupId: CURRENT.id,
     driversWanted: driversWanted(),
+    places: groupPlaces(),
     parents: people,
     events: rows,
     now: new Date().toISOString()
