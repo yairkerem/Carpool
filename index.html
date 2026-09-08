@@ -469,8 +469,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     <label for="i-group">קוד הקבוצה</label>
     <input id="i-group" type="text" dir="ltr" autocomplete="off" autocapitalize="off"
            spellcheck="false" maxlength="12">
-    <p class="hint">שש אותיות וספרות, ממי שהקים את הקבוצה. אם קיבלתם רק כתובת
-      וסיסמה — השאירו ריק.</p>
+    <p class="hint">שש אותיות וספרות, ממי שהקים את הקבוצה.</p>
   </div>
 
   <div class="field">
@@ -698,7 +697,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 27;
+const APP_VERSION = 28;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -925,9 +924,16 @@ function rejected(error){
   }
   if (e.indexOf('unauthorized') < 0) return false;
 
-  localStorage.removeItem(LS.secret);
+  /* The code and the secret are refused together and on purpose — the backend
+     will not say which was wrong — so both are asked for again. This is also
+     what a device meets when its group is given a new code: it is not broken,
+     it is out of date by one field. */
+  const m = here();
+  if (m){ m.secret = ''; persist(); }
   state.secret = '';
-  openSetup('הסיסמה המשותפת נדחתה. הזינו אותה מחדש.');
+  openSetup(state.groupId
+    ? 'קוד הקבוצה או הסיסמה נדחו. בדקו את שניהם והזינו מחדש.'
+    : 'הקבוצה הזו מזוהה עכשיו בקוד. בקשו אותו ממנהל/ת הקבוצה והזינו כאן.');
   return true;
 }
 

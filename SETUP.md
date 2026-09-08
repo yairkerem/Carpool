@@ -223,11 +223,22 @@ which is no help to the one parent in both. Settings has a **כינוי לקבו
 it replaces the name at the top and in the switcher, it takes effect as you
 type, and it never leaves the device. Nobody else in the group sees it.
 
-**The group you already had** needs nothing done to it. The first time the new
-backend runs it gives that group a home in the `Groups` tab, using the name and
-secret it already had, and stamps every existing row with it. Phones that have
-not updated yet carry on working — a request with no code means the group that
-was here before there were codes.
+**The group you already had** is picked up automatically. The first time the
+new backend runs it gives that group a row in the `Groups` tab, using the name
+and secret it already had, generates an ordinary code for it, and stamps every
+existing event and parent with that code. Run `testSetup` to read the code off,
+and send it to that group's parents — they enter it once, alongside the secret
+they already have.
+
+Every group is reached by its code, with no default and no exception. A phone
+that has not been given the code yet is told so plainly and asked for it; its
+secret and everything else stay as they were.
+
+**Changing a group's code.** `recodeGroup('oldcode')` from the editor gives a
+group a fresh one and moves all of its rows across. The secret and the members
+are untouched; everyone re-enters the code once. There is no way to do this
+from the app, on purpose — it logs every member out until they have the new
+code, which is not a button anybody should find by accident.
 
 ## Optional: the nightly nudge
 

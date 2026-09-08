@@ -29,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 7;
+const BACKEND_VERSION = 8;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -99,12 +99,14 @@ function allGroups() {
  *
  * A deployment that has been running has a board, parents and an admin, and
  * none of those rows know which group they belong to because there was only
- * ever one. So the first time this version runs it makes that group real —
- * taking the name and secret it already had from Script Properties — and
- * stamps every existing row with its code. Nothing is asked of anybody, and
- * the app that was working yesterday goes on working. */
-const LEGACY_GROUP = 'main';
-
+ * ever one. The first time this version runs it makes that group real — taking
+ * the name and secret it already had from Script Properties — and stamps every
+ * existing row with its code.
+ *
+ * It gets an ordinary generated code, like any other group. Carving out a
+ * special one would mean a special case in the request path forever, and a
+ * name every deployment shares is a poor thing to have to keep unique. Run
+ * testSetup afterwards to read the code off, and give it to the parents. */
 function migrate() {
   const sh = sheet('Groups', GROUP_COLS);
   if (readAll(sh, GROUP_COLS).length) return;
@@ -112,9 +114,10 @@ function migrate() {
   const secret = PROPS.getProperty('SHARED_SECRET');
   if (!secret) return;                       // nothing has been set up yet
 
+  const id = groupCode();
   writeRow(sh, GROUP_COLS, {
     _row: 0,
-    id: LEGACY_GROUP,
+    id: id,
     name: PROPS.getProperty('GROUP_NAME') || '',
     secret: secret,
     driversWanted: PROPS.getProperty('DRIVERS_WANTED') || '',
@@ -122,14 +125,51 @@ function migrate() {
     removed: ''
   });
 
+  stampRows('', id);
+}
+
+/* Move every event and parent from one code to another. Used by migrate to
+ * claim the rows that carry no code at all, and by recodeGroup below. */
+function stampRows(from, to) {
   [['Events', EVENT_COLS], ['Parents', PARENT_COLS]].forEach(function (pair) {
     const tab = sheet(pair[0], pair[1]);
     readAll(tab, pair[1]).forEach(function (row) {
-      if (!row.group) {
-        row.group = LEGACY_GROUP;
+      if ((row.group || '') === from) {
+        row.group = to;
         writeRow(tab, pair[1], row);
       }
     });
+  });
+}
+
+/* Give an existing group a fresh code — run from the editor, not from the app.
+ *
+ * There is one deployment in the world that has a group called "main", from
+ * the version of this file that carved out that name before deciding not to.
+ * This is how it stops being special. Everyone in the group re-enters the new
+ * code once; nothing else about them changes.
+ *
+ *     recodeGroup('main')
+ */
+function recodeGroup(oldId) {
+  return withLock(function () {
+    const sh = sheet('Groups', GROUP_COLS);
+    const rows = readAll(sh, GROUP_COLS);
+    const row = rows.filter(g => g.id === oldId)[0];
+    if (!row) return 'no group with the code ' + oldId;
+
+    const taken = rows.map(g => g.id);
+    let id = groupCode();
+    while (taken.indexOf(id) >= 0) id = groupCode();
+
+    row.id = id;
+    writeRow(sh, GROUP_COLS, row);
+    stampRows(oldId, id);
+
+    const msg = (row.name || oldId) + ' is now ' + id +
+      '  — give that code to its parents; their secret is unchanged.';
+    Logger.log(msg);
+    return msg;
   });
 }
 
@@ -209,11 +249,12 @@ function doPost(e) {
        carries the host's secret rather than any group's. */
     if (req.action === 'newGroup') return json(newGroup(req));
 
-    /* An app that predates groups sends no code. It means the group that was
-       here before there were groups, which is exactly what migrate() just
-       gave a name to — so old phones keep working through the changeover. */
-    const wanted = String(req.group || '').trim() || LEGACY_GROUP;
-    CURRENT = allGroups().filter(g => g.id === wanted)[0] || null;
+    /* Every group is reached by its code, with no default and no exception —
+       a request without one is simply not about any group this deployment
+       has. An app old enough to send nothing gets the same answer as a wrong
+       code, and its owner re-enters the code once. */
+    const wanted = String(req.group || '').trim().toLowerCase();
+    CURRENT = wanted ? (allGroups().filter(g => g.id === wanted)[0] || null) : null;
 
     /* One answer for a wrong code and a wrong secret, deliberately. Telling a
        stranger which of the two they got right turns the group list into
