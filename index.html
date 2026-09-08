@@ -697,7 +697,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 29;
+const APP_VERSION = 30;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1054,6 +1054,17 @@ async function refresh(quiet){
       return;
     }
     state.group = r.group || '';
+
+    /* Keep the membership's copy of the name in step. The header reads that
+       copy rather than this one, so without this a group renamed in the sheet
+       would go on showing its old name until somebody happened to re-save
+       their settings — the data right and the screen wrong, which is the worst
+       way round. A nickname still wins; that is the point of a nickname. */
+    const mem = here();
+    if (mem && r.group && mem.name !== r.group){
+      mem.name = r.group;
+      persist();
+    }
     state.parents = r.parents || [];
     state.events = r.events || [];
     /* Every reply carries it, and settings should not have to be re-saved

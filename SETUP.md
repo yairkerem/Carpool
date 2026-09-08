@@ -218,6 +218,12 @@ group's name at the top of the board and chooses **+ הצטרפות לקבוצה
 then live on the same phone, and the same name at the top switches between
 them. Each keeps its own board, its own colour for you, and its own admin.
 
+**Renaming a group.** Its name lives in the `name` column of the `Groups` tab —
+edit the cell and every phone picks it up on its next refresh. There is no
+screen for it, because a name is set once and read forever, and the sheet is
+already open when you are doing that sort of thing. The code and the secret are
+unaffected; nobody has to re-enter anything.
+
 **Naming them for yourself.** Two groups can easily both be called "כדורגל",
 which is no help to the one parent in both. Settings has a **כינוי לקבוצה** —
 it replaces the name at the top and in the switcher, it takes effect as you
