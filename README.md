@@ -14,13 +14,23 @@ who is bringing the children home at 18:15, and this puts that on one screen.
 - **Events, added by hand.** Title, date, time, place, return time, a note.
   Optionally repeated weekly, for a term's worth of training in one go.
 
-  The two time fields are plain text taking the same shorthand as the title —
-  `16`, `1600` and `16:00` are all four o'clock — and they are a 24-hour clock
-  on every phone. They have to be: the browser's own time control draws its
-  clock from the browser's UI language, so a phone set to English shows AM/PM
-  there and nothing the page can set will change it, not `lang="he"` and not
-  the phone's own 24-hour setting. A board where one time in three reads
-  `4:00 PM` is a board people misread.
+  The date and the two times are plain text taking the same shorthand as the
+  title — `16`, `1600` and `16:00` are all four o'clock; `15/09`, `15.9` and
+  `1509` are all the fifteenth — and they read the same on every phone: a
+  24-hour clock, and the day before the month.
+
+  They have to be. The browser's own date and time controls lay themselves out
+  in the browser's UI language, so a phone set to English shows `4:00 PM` in
+  the one place a time is typed, and offers `09/15` on a board that prints
+  `15/09` everywhere else. Nothing the page can set reaches them — not
+  `lang="he"`, which they ignore, and not the phone's own 24-hour setting,
+  which they never consult.
+
+  A year is only worth typing for something more than six months out; leave it
+  off and the nearest one is used, so `03/01` written in December is a fortnight
+  away rather than eleven months back. Under the date the field names the day
+  it landed on — *יום שלישי · 15/09* — which is the one thing the calendar
+  picker was good for.
 - **One line is enough.** Type the event the way you would say it in the group
   — *אימון כדורגל יום שלישי 16:30-18:15 במגרש הדשא* — and the day, both times
   and the place fill themselves in. Then they come out of the title, so the

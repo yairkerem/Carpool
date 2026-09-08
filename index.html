@@ -604,7 +604,9 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
   <div class="field">
     <label for="e-date">תאריך</label>
-    <input id="e-date" type="date">
+    <input id="e-date" type="text" dir="ltr" inputmode="numeric" pattern="[0-9/.]*"
+           maxlength="10" autocomplete="off" placeholder="15/09">
+    <p class="hint" id="date-read"></p>
   </div>
 
   <!-- Not type="time". That control draws its own clock from the browser's UI
@@ -723,7 +725,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 36;
+const APP_VERSION = 37;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -897,6 +899,90 @@ function dayLabel(s){
 
   const name = d.getDay() === 6 ? 'שבת' : 'יום ' + HE_DAYS[d.getDay()];
   return name + ' · ' + date;
+}
+
+/* The date field is text for the same reason the time fields are: the native
+ * picker lays the day and the month out in the browser's UI language, so a
+ * phone set to English offers 09/08 for the eighth of September on a board
+ * that prints 08/09 everywhere else. Day first, always.
+ *
+ * Half a year, and not a day more. A year is left off the field when the date
+ * is inside this window, and readDate fills it back in by taking the nearest
+ * one — so the window has to be narrow enough that "nearest" can only mean the
+ * year it was written with. At 182 days every other candidate is at least 183
+ * away; at 200 the two overlap and a date would read back a year out. */
+const YEARLESS_DAYS = 182;
+
+function dateText(s){
+  if (!s) return '';
+  const t = todayIso();
+  const near = s <= shiftIso(t, YEARLESS_DAYS) && s >= shiftIso(t, -YEARLESS_DAYS);
+  return ddmm(s) + (near ? '' : '/' + fromIso(s).getFullYear());
+}
+
+/* '' empty, null unreadable, otherwise ISO — the same three answers readTime
+ * gives, for the same reasons. */
+function readDate(s){
+  const t = String(s || '').trim().replace(/[.\-\\]/g, '/');
+  if (!t) return '';
+
+  let m, d, mo, y = null;
+  if ((m = t.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2}|\d{4}))?$/))){
+    d = +m[1]; mo = +m[2];
+    if (m[3]) y = m[3].length === 2 ? 2000 + +m[3] : +m[3];
+  } else if ((m = t.match(/^(\d{2})(\d{2})$/))){          // 0809, typed straight through
+    d = +m[1]; mo = +m[2];
+  } else {
+    return null;
+  }
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+
+  /* No year given: whichever one puts it closest to today. That reads "03/01"
+     in December as three weeks off rather than eleven months back, and still
+     reads yesterday's date as yesterday. */
+  if (y === null){
+    const now = fromIso(todayIso()).getTime();
+    const here = new Date().getFullYear();
+    let best = null;
+    for (const cand of [here - 1, here, here + 1]){
+      const made = madeDate(cand, mo, d);
+      if (!made) continue;
+      const gap = Math.abs(fromIso(made).getTime() - now);
+      if (!best || gap < best.gap) best = { iso: made, gap: gap };
+    }
+    return best ? best.iso : null;
+  }
+  return madeDate(y, mo, d);
+}
+
+/* new Date(2026, 1, 31) rolls quietly into March, so the only way to know
+ * whether a date exists is to build it and see if it kept its own numbers. */
+function madeDate(y, mo, d){
+  const made = new Date(y, mo - 1, d, 12);
+  if (made.getFullYear() !== y || made.getMonth() !== mo - 1 || made.getDate() !== d) return null;
+  return iso(made);
+}
+
+/* What the date field holds, as ISO. */
+function dateValue(){ return readDate($('e-date').value); }
+
+/* Echoes the weekday under the field. Losing the calendar means losing the
+ * one thing it was good at — showing that the 15th is a Tuesday — so the
+ * field says so itself, and says it while there is still time to change it. */
+function echoDate(){
+  const v = dateValue();
+  if (v === null && $('e-date').value.trim()){
+    say('date-read', 'תאריך לא ברור. אפשר לכתוב 15/09 או 15/09/2026.', 'err');
+    return;
+  }
+  say('date-read', v ? dayLabel(v) : '');
+  $('date-read').className = 'hint auto';
+}
+
+function tidyDate(){
+  const v = dateValue();
+  if (v) $('e-date').value = dateText(v);
+  echoDate();
 }
 
 /* ---- backend -------------------------------------------------- */
@@ -1427,7 +1513,7 @@ function eventCol(ev){
 function duplicateEvent(ev){
   openEdit(null);
   $('e-title').value = ev.title;
-  $('e-date').value = nextWeekday(fromIso(ev.date).getDay());
+  $('e-date').value = dateText(nextWeekday(fromIso(ev.date).getDay()));
   $('e-time').value = ev.time || '';
   $('e-back').value = ev.backTime || '';
   $('e-place').value = ev.place || '';
@@ -1438,6 +1524,7 @@ function duplicateEvent(ev){
      untouched, so changing "יום שלישי" to "יום חמישי" still moves the date. */
   resetAuto(ev.title);
   say('title-read', '');
+  echoDate();
 }
 
 /* Both legs are always drawn, even when nobody has filled in a time. An event
@@ -1956,7 +2043,9 @@ function flash(id){
 function watchTitle(){
   const p = parseTitle($('e-title').value);
 
-  applyAuto('day', 'e-date', p.day ? p.day.iso : '', p.day ? p.day.label : '');
+  /* The field carries the written form, so that is what the guess writes into
+     it — the label it dedupes on is unchanged either way. */
+  applyAuto('day', 'e-date', p.day ? dateText(p.day.iso) : '', p.day ? p.day.label : '');
   applyAuto('time', 'e-time', p.time);
   applyAuto('back', 'e-back', p.back);
   applyAuto('place', 'e-place', p.place);
@@ -1969,6 +2058,7 @@ function watchTitle(){
 
   say('title-read', bits.length ? 'הובן מהשם: ' + bits.join(' · ') : '');
   $('title-read').className = 'hint auto';
+  echoDate();                 // a date written in by the guess still says its day
 }
 
 /* Taking the understood words out of the title is left until the parent
@@ -1984,7 +2074,7 @@ function tidyTitle(){
      back as "אימון" while the date and place fields still held their own,
      different values — the words gone from the title and recorded nowhere. */
   const taken = [];
-  if (p.span.day   && $('e-date').value  === p.day.iso) taken.push(p.span.day);
+  if (p.span.day   && dateValue()        === p.day.iso) taken.push(p.span.day);
   if (p.span.time  && $('e-time').value  === p.time)    taken.push(p.span.time);
   if (p.span.back  && $('e-back').value  === p.back)    taken.push(p.span.back);
   if (p.span.place && $('e-place').value === p.place)   taken.push(p.span.place);
@@ -2001,7 +2091,7 @@ function openEdit(ev){
   state.editing = ev || null;
   $('edit-h').textContent = ev ? 'עריכת אירוע' : 'אירוע חדש';
   $('e-title').value = ev ? ev.title : '';
-  $('e-date').value = ev ? ev.date : todayIso();
+  $('e-date').value = dateText(ev ? ev.date : todayIso());
   $('e-time').value = ev ? (ev.time || '') : '';
   $('e-back').value = ev ? (ev.backTime || '') : '';
   $('e-place').value = ev ? (ev.place || '') : '';
@@ -2011,6 +2101,7 @@ function openEdit(ev){
   $('delete-row').hidden = !ev;
   say('edit-msg', '');
   say('title-read', '');
+  echoDate();
 
   /* Seeded with whatever the title already says, so opening an event whose
      name mentions a day or a place does not move it on sight. Only a change
@@ -2023,8 +2114,13 @@ function openEdit(ev){
 
 async function saveEvent(){
   const title = $('e-title').value.trim();
-  const date = $('e-date').value;
+  const date = dateValue();
   if (!title){ say('edit-msg', 'צריך שם לאירוע.', 'err'); return; }
+  if (date === null){
+    say('edit-msg', 'תאריך לא ברור. אפשר לכתוב 15/09 או 15/09/2026.', 'err');
+    $('e-date').focus();
+    return;
+  }
   if (!date){ say('edit-msg', 'צריך תאריך.', 'err'); return; }
 
   /* The text fields do their own validating now that the browser is not doing
@@ -2657,6 +2753,8 @@ $('e-title').addEventListener('input', watchTitle);
 $('e-title').addEventListener('blur', tidyTitle);
 $('e-time').addEventListener('blur', () => tidyTime('e-time'));
 $('e-back').addEventListener('blur', () => tidyTime('e-back'));
+$('e-date').addEventListener('input', echoDate);
+$('e-date').addEventListener('blur', tidyDate);
 
 /* Setting .value from script fires no input event, so these only ever hear
    the parent — which is exactly when the guessing should stop for that one
