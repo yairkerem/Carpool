@@ -781,7 +781,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 41;
+const APP_VERSION = 42;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -866,6 +866,69 @@ function show(name){
   for (const s of document.querySelectorAll('.screen')) s.classList.remove('active');
   $('s-' + name).classList.add('active');
   window.scrollTo(0, 0);
+  syncHistory(name);
+}
+
+/* ---- the phone's back button ---------------------------------- */
+/* Android's back is a page navigation, and a one-page app gives it nothing to
+ * go back to — so pressing it in settings left the app altogether. It threw
+ * away the place somebody was in rather than the screen they wanted rid of,
+ * and on an installed PWA that means the whole thing closes.
+ *
+ * So every screen above the board carries a history entry, and back pops it.
+ * The counting is done in show() rather than at each of the dozen places that
+ * change screen: the one that gets forgotten is the one that leaves the stack
+ * a level out, and from then on every back press is off by one. */
+const SCREEN_DEPTH = { list:0, setup:1, edit:1, newgroup:2 };
+
+/* On a phone that has not joined anything, setup is the whole app rather than
+ * a screen on top of it — so there it is the root, and back leaves, which is
+ * what it should do from the first screen of anything. */
+function depthOf(name){
+  const d = SCREEN_DEPTH[name] || 0;
+  return state.list.length ? d : Math.max(0, d - 1);
+}
+
+let guards = 0;                    // history entries this app has pushed
+let ignorePop = false;
+
+function syncHistory(name){
+  const want = depthOf(name);
+  try {
+    while (guards < want){ history.pushState({ cp: guards + 1 }, ''); guards++; }
+    if (guards > want){
+      /* Left by our own arrow, or by saving. Unwind what we pushed — and do
+         not let the popstate that follows navigate a second time. */
+      const back = guards - want;
+      guards = want;
+      ignorePop = true;
+      history.go(-back);
+    }
+  } catch (e) {
+    /* No history to speak of. The app still works; the back button just goes
+       back to doing what it did before. */
+  }
+}
+
+window.addEventListener('popstate', function (){
+  if (ignorePop){ ignorePop = false; return; }
+  if (!guards) return;             // at the root: the press is the phone's
+  guards--;                        // the entry has already gone
+  backOut();
+});
+
+/* Pressing the arrow in the corner, from wherever we are. Not a separate idea
+ * of where back goes — two of those would disagree the first time one of them
+ * changed. */
+function backOut(){
+  if ($('s-newgroup').classList.contains('active')){ $('b-ng-back').click(); return; }
+  if ($('s-edit').classList.contains('active')){ $('b-edit-back').click(); return; }
+  if ($('s-setup').classList.contains('active') && !$('setup-bar').hidden){
+    $('b-setup-back').click();
+    return;
+  }
+  show(state.list.length ? 'list' : 'setup');
+  render();
 }
 
 /* Moving the board on the reader's behalf has to be *seen* moving, or it reads

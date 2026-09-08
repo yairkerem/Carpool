@@ -110,6 +110,10 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   the training moves somewhere else is exactly the week a closed list would be
   in the way — and the saved names feed the title parser too, so a venue is
   understood from a typed line before anyone has ever met there.
+- **Android's back button closes the screen, not the app.** Settings, the
+  editor and the create-a-group screen each carry a history entry, so back
+  goes up one exactly as the arrow in the corner does. At the board it is the
+  phone's press again, which is what leaving an app should take.
 - Works offline on the last loaded board, and installs to a home screen on
   both Android and iOS.
 
