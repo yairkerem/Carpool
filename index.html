@@ -551,7 +551,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 <section id="s-list" class="screen">
   <header class="bar">
     <div class="bar-title">
-      <button id="b-switch" class="switch"><b id="group-name">Carpool</b><span id="switch-caret" hidden>▾</span></button>
+      <button id="b-switch" class="switch"><b id="group-name">Carpool</b><span id="switch-caret">▾</span></button>
       <span id="me-chip" class="chip dot" hidden></span>
     </div>
     <div class="bar-acts">
@@ -560,7 +560,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     </div>
   </header>
 
-  <!-- Only ever open on purpose: a phone in one group never sees it. -->
+  <!-- Only ever open on purpose: tapping the name at the top. -->
   <div id="switcher" class="switcher" hidden></div>
 
   <div id="update-bar" class="banner" hidden>
@@ -703,7 +703,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 31;
+const APP_VERSION = 32;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1128,13 +1128,12 @@ function personChip(p, solid){
 }
 
 /* ---- rendering ------------------------------------------------ */
-/* The header name doubles as the switcher, but only where there is something
- * to switch to — one group should look like an app with one group, not like an
- * app hiding a menu. */
+/* The header name doubles as the switcher, and it is always open, even on a
+ * phone in one group. It used to be disabled until there were two, on the
+ * grounds that one group should not look like an app hiding a menu — but
+ * joining the second group is itself in this menu, so that hid the only door
+ * to it behind having already walked through it. */
 function paintSwitcher(){
-  const many = state.list.length > 1;
-  $('switch-caret').hidden = !many;
-  $('b-switch').disabled = !many;
 
   const box = $('switcher');
   box.textContent = '';
