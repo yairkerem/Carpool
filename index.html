@@ -584,10 +584,13 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     <h3>הקבוצות שלי</h3>
     <p class="hint" id="groups-note"></p>
     <div class="rowbtns" style="margin-top:10px">
+      <button type="button" id="b-share-join" hidden>הזמנת הורים לקבוצה</button>
       <button type="button" id="b-join-group" hidden>הצטרפות לקבוצה</button>
       <button type="button" id="b-new-group">יצירת קבוצה</button>
       <button type="button" id="b-forget" hidden>התנתקות מהקבוצה</button>
     </div>
+    <p class="hint" id="share-note" hidden>ההזמנה כוללת את כתובת האפליקציה, קוד
+      הקבוצה והסיסמה המשותפת — שלחו רק למי שאמור/ה להיות בקבוצה.</p>
   </div>
 
   <!-- Always on screen, connected or not. A parent stuck on this page with an
@@ -781,7 +784,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 42;
+const APP_VERSION = 43;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1479,6 +1482,35 @@ function shareGroup(){
     'בכניסה הראשונה ממלאים שם, צבע, ואת שני אלה.'
   ].join('\n');
 
+  shareText(text);
+}
+
+/* Everything a parent needs to join the group this phone is looking at: where
+ * the app lives, the group's code and its secret. All three are already on
+ * every member's phone, so this saves reading them out rather than giving
+ * anything away — but it does put the secret into a message, which is why the
+ * line under the button says so.
+ *
+ * Shared from settings rather than the board: it is the group you are in that
+ * gets shared, and settings is where the rest of that group's business is. */
+function shareJoin(){
+  if (!state.groupId || !state.secret) return;
+  shareText([
+    'הצטרפו לקבוצת ההסעות "' + (state.group || 'הסעות') + '":',
+    '',
+    location.origin + location.pathname,
+    '',
+    'קוד הקבוצה: ' + state.groupId,
+    'סיסמה משותפת: ' + state.secret,
+    '',
+    'בכניסה הראשונה ממלאים שם, צבע, ואת שני אלה.'
+  ].join('\n'));
+}
+
+/* The phone's own share sheet where there is one, because it knows which apps
+ * this parent actually uses. Where there is not, WhatsApp directly — that is
+ * where it was going anyway. */
+function shareText(text){
   if (navigator.share){ navigator.share({ text: text }).catch(() => {}); return; }
   window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
 }
@@ -1786,13 +1818,7 @@ function shareEvent(ev){
   lines.push('🚗 הלוך' + (ev.time ? ' ' + ev.time : '') + ': ' + names(ev.toDriver));
   lines.push('🏠 חזור' + (ev.backTime ? ' ' + ev.backTime : '') + ': ' + names(ev.backDriver));
 
-  const text = lines.join('\n');
-  if (navigator.share){
-    navigator.share({ text: text }).catch(() => {});
-    return;
-  }
-  /* No share sheet: hand it to WhatsApp directly, which is where it was going. */
-  window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+  shareText(lines.join('\n'));
 }
 
 /* ================================================================
@@ -2418,6 +2444,8 @@ function openSetup(message){
      connected, so offering it as a button too would be one door drawn twice.
      Leaving a group you are not in makes no sense either; creating one always
      does. */
+  $('b-share-join').hidden = !connected;
+  $('share-note').hidden = !connected;
   $('b-join-group').hidden = !connected;
   $('b-forget').hidden = !connected;
   $('groups-note').textContent = !connected ? ''
@@ -2974,6 +3002,7 @@ $('i-place-new').addEventListener('keydown', e => {
   if (e.key === 'Enter'){ e.preventDefault(); addPlace(); }
 });
 
+$('b-share-join').onclick = shareJoin;
 $('b-join-group').onclick = joinGroup;
 $('b-new-group').onclick = openNewGroup;
 $('b-ng-back').onclick = () => { show(state.list.length ? 'list' : 'setup'); render(); };

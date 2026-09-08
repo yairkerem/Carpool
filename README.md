@@ -87,7 +87,12 @@ who is bringing the children home at 18:15, and this puts that on one screen.
 - **A phone number next to the driver**, so the parent waiting in the car park
   can call rather than open WhatsApp.
 - **Share to WhatsApp**, because that is where the group already lives — the
-  app writes the message, it does not try to replace the conversation.
+  app writes the message, it does not try to replace the conversation. An
+  event goes out as who is driving which leg; a whole group goes out from
+  settings as an invitation — the app's address, the group's code and its
+  secret, which is everything a new parent has to type. Both use the phone's
+  own share sheet where there is one, since it knows which apps that parent
+  actually uses.
 - **An admin, to keep the list honest.** The first parent to register is the
   admin — whoever set the group up, without being told to claim anything — and
   can remove a member from settings. Removing frees every future leg that
