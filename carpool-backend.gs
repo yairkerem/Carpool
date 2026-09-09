@@ -29,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 14;
+const BACKEND_VERSION = 15;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -503,24 +503,60 @@ function remindOneGroup(group) {
   const tomorrow = shiftDays(today(), 1);
   const due = state().events.filter(e => e.date === tomorrow);
 
-  const items = [];
   const byId = {};
   pushTargets(null).forEach(t => { byId[t.parentId] = t.sub; });
 
+  /* One notification per parent for the whole evening, not one per leg.
+   *
+   * Driving both ways is the ordinary case, not the exception — the same
+   * parent takes them and brings them back — and two buzzes a minute apart
+   * saying nearly the same thing is how a reminder becomes something people
+   * swipe away without reading. Two separate events tomorrow gather into the
+   * one notice for the same reason. */
+  const mine = {};
   due.forEach(function (e) {
     [['toDriver', 'הלוך', e.time], ['backDriver', 'חזור', e.backTime]].forEach(function (leg) {
       (e[leg[0]] || []).forEach(function (id) {
         if (!byId[id]) return;
-        items.push({
-          parentId: id, sub: byId[id],
-          title: e.title || 'הסעה מחר',
-          body: 'מחר' + (leg[2] ? ' ב-' + leg[2] : '') + ' — אתם מסיעים ' + leg[1] +
-                (e.place ? ', ' + e.place : '') + '.',
-          tag: 'ride-' + e.id + '-' + leg[0],
-          url: './'
+        (mine[id] = mine[id] || []).push({
+          title: e.title || 'נסיעה', which: leg[1], time: leg[2] || '', place: e.place || ''
         });
       });
     });
+  });
+
+  const items = Object.keys(mine).map(function (id) {
+    /* By the leg's own clock, not by event: a return at 18:15 comes after
+       another event's outward run at 17:00, whichever was typed first. An
+       unfilled time sorts last — it is the one they will have to ask about. */
+    const legs = mine[id].sort(function (a, b) {
+      return (a.time || '99:99').localeCompare(b.time || '99:99');
+    });
+
+    let title, body;
+    if (legs.length === 1) {
+      const l = legs[0];
+      title = l.title;
+      body = 'מחר' + (l.time ? ' ב-' + l.time : '') + ' — אתם מסיעים ' + l.which +
+             (l.place ? ', ' + l.place : '') + '.';
+    } else if (legs.length === 2 && legs[0].title === legs[1].title) {
+      /* Both ways of one event, which is most of them. Naming the event once
+         and the two times after it reads the way a parent would say it. */
+      title = legs[0].title;
+      body = 'מחר — אתם מסיעים ' +
+             legs.map(l => l.which + (l.time ? ' ב-' + l.time : '')).join(' וגם ') +
+             (legs[0].place ? ', ' + legs[0].place : '') + '.';
+    } else {
+      title = group.name || 'הסעות';
+      body = 'מחר יש לכם ' + legs.length + ' נסיעות:\n' +
+             legs.map(l => '• ' + l.title + ' — ' + l.which +
+                           (l.time ? ' ' + l.time : '')).join('\n');
+    }
+
+    /* One tag for the day, so a second send — a trigger that fired twice, a
+       retry — replaces the notice rather than stacking beside it. */
+    return { parentId: id, sub: byId[id], title: title, body: body,
+             tag: 'rides-' + tomorrow, url: './' };
   });
 
   /* The stamp is written whether or not there was anything to send. Without

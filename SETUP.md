@@ -340,6 +340,15 @@ your parents.
 Each driver, on the evening before: *מחר ב-16:00 — אתם מסיעים הלוך, מגרש הדשא.*
 Only to a parent who is actually down to drive, and only for tomorrow.
 
+**One notification per parent, whatever they are driving.** Taking them and
+bringing them back is the ordinary case, not the exception, and two buzzes a
+minute apart saying nearly the same thing is how a reminder becomes something
+people swipe away without reading. Both legs of one event read as
+*מחר — אתם מסיעים הלוך ב-16:00 וגם חזור ב-18:15, מגרש הדשא.* Legs across
+different events gather into a list, ordered by the clock rather than by
+event — a return at 18:15 comes after another event's outward run at 17:30,
+whichever was typed first.
+
 The time is the group's own — the admin sets it in settings, default 19:00.
 Apps Script fires a time trigger somewhere inside the hour, so it is an
 evening's notice rather than an appointment, which is all it needs to be. The
