@@ -29,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 17;
+const BACKEND_VERSION = 18;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -263,18 +263,18 @@ function setGroupName(name, byId) {
     const by = parents().filter(p => p.id === byId)[0];
     if (!by || by.admin !== '1' || by.removed === '1') return { ok: false, error: 'not-admin' };
 
-    const clean = String(name || '').trim().replace(/\s+/g, ' ');
-    if (!clean) return { ok: false, error: 'name required' };
-    if (clean.length > 60) return { ok: false, error: 'name-too-long' };
+    const tidy = String(name || '').trim().replace(/\s+/g, ' ');
+    if (!tidy) return { ok: false, error: 'name required' };
+    if (tidy.length > 60) return { ok: false, error: 'name-too-long' };
 
     const sh = sheet('Groups', GROUP_COLS);
     const row = readAll(sh, GROUP_COLS).filter(g => g.id === CURRENT.id)[0];
     if (!row) return { ok: false, error: 'not found' };
 
-    row.name = clean;
+    row.name = tidy;
     writeRow(sh, GROUP_COLS, row);
     CURRENT = row;
-    return { ok: true, group: clean };
+    return { ok: true, group: tidy };
   });
 }
 
@@ -300,25 +300,25 @@ function setPlaces(list, byId) {
 
     /* Written whole every time, so the cleaning happens here rather than at
        each edge the app might add one from. */
-    const clean = [];
+    const kept = [];
     (Array.isArray(list) ? list : []).forEach(function (raw) {
       const name = String(raw === null || raw === undefined ? '' : raw)
         .trim().replace(/\s+/g, ' ').slice(0, MAX_PLACE_LEN);
       if (!name) return;
       /* Two spellings of one venue is the thing this feature exists to stop,
          so the list will not hold the same name twice. */
-      if (clean.some(p => p.toLowerCase() === name.toLowerCase())) return;
-      if (clean.length < MAX_PLACES) clean.push(name);
+      if (kept.some(p => p.toLowerCase() === name.toLowerCase())) return;
+      if (kept.length < MAX_PLACES) kept.push(name);
     });
 
     const sh = sheet('Groups', GROUP_COLS);
     const row = readAll(sh, GROUP_COLS).filter(g => g.id === CURRENT.id)[0];
     if (!row) return { ok: false, error: 'not found' };
 
-    row.places = JSON.stringify(clean);
+    row.places = JSON.stringify(kept);
     writeRow(sh, GROUP_COLS, row);
     CURRENT = row;
-    return { ok: true, places: clean };
+    return { ok: true, places: kept };
   });
 }
 
@@ -518,11 +518,15 @@ function pushReminders() {
 }
 
 function remindOneGroup(group) {
-  const today = todayStamp();
-  if (group.remindedOn === today) return;                 // already done today
+  /* Not `today` — that is the function two hundred lines down that returns it,
+     and a const of the same name puts it in the temporal dead zone for the
+     whole of this function. `today()` on the next line then threw, and the
+     evening reminder had never once run. */
+  const stamp = today();
+  if (group.remindedOn === stamp) return;                 // already done today
   if (nowMinutes() < timeToMinutes(remindAt())) return;   // not yet this evening
 
-  const tomorrow = shiftDays(today(), 1);
+  const tomorrow = shiftDays(stamp, 1);
   const due = state().events.filter(e => e.date === tomorrow);
 
   const byId = {};
@@ -585,12 +589,11 @@ function remindOneGroup(group) {
      it a quiet evening would be retried every hour until midnight. */
   const sh = sheet('Groups', GROUP_COLS);
   const row = readAll(sh, GROUP_COLS).filter(x => x.id === group.id)[0];
-  if (row) { row.remindedOn = today; writeRow(sh, GROUP_COLS, row); }
+  if (row) { row.remindedOn = stamp; writeRow(sh, GROUP_COLS, row); }
 
   if (items.length) pushSend(items);
 }
 
-function todayStamp() { return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd'); }
 function nowMinutes() {
   return Number(Utilities.formatDate(new Date(), TZ, 'H')) * 60 +
          Number(Utilities.formatDate(new Date(), TZ, 'm'));
