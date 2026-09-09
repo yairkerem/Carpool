@@ -897,7 +897,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 71;
+const APP_VERSION = 72;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -3335,16 +3335,34 @@ async function pushGroupSettings(){
   }
   if (!done.length) return [];
 
-  let r;
-  const began = Date.now();
-  try {
-    r = await api(req, 25000);
-  } catch (err) {
-    /* Timing out is not the same as being refused, and the difference is the
-       whole of what to do about it. Say which, and how long it waited. */
-    say('group-msg', netMessage(err) +
-        ' (' + Math.round((Date.now() - began) / 1000) + ' שניות)', 'err');
-    return null;
+  /* Tried twice before giving up.
+   *
+   * This save is idempotent — it sets each field to an absolute value rather
+   * than nudging it — so sending it again is safe even if the first one did
+   * arrive and it was only the answer that was lost. And the failure it
+   * guards against is the ordinary one for this app: a phone on mobile data
+   * in a car park, or Apps Script taking its time to wake up. Handing a
+   * parent a dead end for either of those is worse than waiting.
+   *
+   * Twice, not more: a third go would keep somebody staring at "שומר…" for
+   * over a minute, and by then the answer is that it is not working now. */
+  let r = null;
+  let waited = 0;
+  for (let attempt = 1; attempt <= 2 && !r; attempt++){
+    const began = Date.now();
+    try {
+      r = await api(req, 25000);
+    } catch (err) {
+      waited += Math.round((Date.now() - began) / 1000);
+      if (attempt === 2){
+        /* Timing out is not the same as being refused, and the difference is
+           the whole of what to do about it. Say which, and how long it took
+           over both tries. */
+        say('group-msg', netMessage(err) + ' (' + waited + ' שניות, שני ניסיונות)', 'err');
+        return null;
+      }
+      say('group-msg', 'השרת לא ענה. מנסה שוב…', 'ok');
+    }
   }
   if (!r.ok){ groupSaveFailed(r); return null; }
   /* The backend times its own execution. A save that takes fifteen seconds is
