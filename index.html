@@ -858,7 +858,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 58;
+const APP_VERSION = 59;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -2896,6 +2896,14 @@ async function registerMe(extra){
     }
 
     state.me = me.parent;
+
+    /* Telling the admins is a separate request on purpose, and deliberately
+       not awaited: it reaches the push relay, and a slow relay must not hold
+       up a registration that has already succeeded. If it never lands nobody
+       is worse off — the admin's board says so the next time they open it. */
+    if (me.isNew){
+      api({ action:'joined' }, 15000).catch(() => {});
+    }
 
     /* Joining writes a new membership; saving updates the one on screen. The
        group's code is whatever the backend confirmed, so a device that joined

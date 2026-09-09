@@ -29,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 15;
+const BACKEND_VERSION = 16;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -79,7 +79,7 @@ let CURRENT = null;
 
 /* Actions that change the board, and so are closed to a removed parent. */
 const WRITES = ['me', 'save', 'remove', 'claim', 'release', 'ride', 'kick',
-                'drivers', 'rename', 'places', 'push', 'remindat'];
+                'drivers', 'rename', 'places', 'push', 'remindat', 'joined'];
 
 /* Ambiguous characters left out: a code gets read off one phone and typed into
  * another, and l/1 and O/0 are where that goes wrong. */
@@ -454,8 +454,30 @@ function pushTargets(ids) {
   return out;
 }
 
-/* Somebody new has registered. The admin is the one who answers for the list
- * being right, so the admin is the one told — and never about themselves. */
+/* Somebody new has registered, and the admins are told.
+ *
+ * A SEPARATE REQUEST, not part of registering. Reaching the relay is a network
+ * call inside a request somebody is waiting on, and if the relay is slow or
+ * unreachable it holds registration open until the phone gives up — the parent
+ * sees "the request took too long" for a registration that in fact succeeded.
+ * Notifying is not allowed to gate joining. So the app registers, gets its
+ * answer, and only then mentions it; if that second call never lands, nobody
+ * is stopped from anything, and the admin is told by the board's own banner
+ * the next time they look.
+ *
+ * Only for a row written in the last few minutes, so this cannot be replayed
+ * later to make the admins' phones buzz. */
+function announceJoin(meId) {
+  const me = parents().filter(p => p.id === meId)[0];
+  if (!me || me.removed === '1') return { ok: true, announced: false };
+
+  const age = Date.now() - new Date(me.updatedAt || 0).getTime();
+  if (!(age >= 0 && age < 10 * 60 * 1000)) return { ok: true, announced: false };
+
+  notifyNewMember(me.name, me.id);
+  return { ok: true, announced: true };
+}
+
 function notifyNewMember(name, newId) {
   const admins = parents()
     .filter(p => p.admin === '1' && p.removed !== '1' && p.id !== newId)
@@ -679,12 +701,8 @@ function doPost(e) {
     switch (req.action) {
       case 'ping':    return json(ping());
       case 'state':   return json(state());
-      case 'me': {
-        const saved = saveParent(req.parent);
-        if (saved.ok && saved.isNew) notifyNewMember(saved.parent.name, saved.parent.id);
-        delete saved.isNew;
-        return json(saved);
-      }
+      case 'me':     return json(saveParent(req.parent));
+      case 'joined': return json(announceJoin(req.me));
       case 'save':    return json(saveEvent(req.event));
       case 'remove':  return json(removeEvent(req.id));
       case 'claim':   return json(claim(req.id, req.leg, req.parentId));
