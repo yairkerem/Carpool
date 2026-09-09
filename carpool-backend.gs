@@ -29,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 19;
+const BACKEND_VERSION = 20;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -76,6 +76,10 @@ const GROUP_COLS = ['id', 'name', 'secret', 'driversWanted', 'createdAt', 'remov
  * for the same reason the lock counter is: an Apps Script execution is
  * single-threaded, and separate executions share nothing. */
 let CURRENT = null;
+
+/* When this execution began, so every reply can say how long it took. A save
+ * that is slow and a save that never arrives look identical from a phone. */
+let STARTED = 0;
 
 /* Actions that change the board, and so are closed to a removed parent. */
 const WRITES = ['me', 'save', 'remove', 'claim', 'release', 'ride', 'kick',
@@ -742,6 +746,7 @@ function setDriversWanted(n, byId) {
 // ---------- entry points ----------
 
 function doPost(e) {
+  STARTED = Date.now();
   try {
     const req = JSON.parse(e.postData.contents);
 
@@ -821,6 +826,7 @@ function doGet() {
 }
 
 function json(obj) {
+  if (obj && typeof obj === 'object' && STARTED) obj.ms = Date.now() - STARTED;
   return ContentService
     .createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
@@ -905,7 +911,11 @@ function withLock(fn) {
   if (lockDepth > 0) return fn();          // this execution already holds it
 
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(20000)) throw new Error('busy — try again');
+  /* Eight seconds, not twenty. The app gives up at twenty-five, so a request
+     that waits twenty for the lock and then still has work to do runs past
+     that and dies as a bare timeout — which says nothing about why. Failing
+     early leaves time to answer with a reason, and "busy" is a reason. */
+  if (!lock.tryLock(8000)) throw new Error('busy');
   lockDepth++;
   try {
     return fn();

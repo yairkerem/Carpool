@@ -897,7 +897,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 69;
+const APP_VERSION = 71;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -3335,18 +3335,36 @@ async function pushGroupSettings(){
   }
   if (!done.length) return [];
 
-  const r = await api(req, 25000);
+  let r;
+  const began = Date.now();
+  try {
+    r = await api(req, 25000);
+  } catch (err) {
+    /* Timing out is not the same as being refused, and the difference is the
+       whole of what to do about it. Say which, and how long it waited. */
+    say('group-msg', netMessage(err) +
+        ' (' + Math.round((Date.now() - began) / 1000) + ' שניות)', 'err');
+    return null;
+  }
   if (!r.ok){ groupSaveFailed(r); return null; }
+  /* The backend times its own execution. A save that takes fifteen seconds is
+     working but ailing, and worth knowing about before it becomes a timeout. */
+  if (r.ms > 8000) console.log('carpool: group save took ' + r.ms + 'ms on the server');
 
   /* Taken from the reply rather than from what was sent: the backend cleans
-     and caps these, and the screen should show what was actually kept. */
-  state.group = r.group;
-  state.driversWanted = r.driversWanted;
-  state.remindAt = r.remindAt;
-  state.places = r.places || [];
-  editPlaces = state.places.slice();
+     and caps these, and the screen should show what was actually kept.
+     Field by field, and only what the reply actually carries — a truncated or
+     older answer would otherwise blank the group's name on this phone, which
+     is a great deal worse than not updating it. */
+  if (r.group !== undefined) state.group = r.group;
+  if (r.driversWanted !== undefined) state.driversWanted = r.driversWanted;
+  if (r.remindAt !== undefined) state.remindAt = r.remindAt;
+  if (r.places !== undefined){
+    state.places = r.places || [];
+    editPlaces = state.places.slice();
+  }
   const m = here();
-  if (m && m.name !== r.group){ m.name = r.group; persist(); }
+  if (m && r.group !== undefined && m.name !== r.group){ m.name = r.group; persist(); }
   return done;
 }
 
@@ -3377,6 +3395,13 @@ async function saveGroupSettings(){
 
 function groupSaveFailed(r){
   if (rejected(r.error)) return;
+  /* The backend refuses rather than queueing when another request holds the
+     lock. That is a real answer and deserves saying as one, instead of the
+     bare stack trace it used to show. */
+  if (/busy/i.test(r.error || '')){
+    say('group-msg', 'השרת עסוק ברגע זה. נסו שוב עוד רגע.', 'err');
+    return;
+  }
   const known = {
     'not-admin': 'רק מנהל/ת הקבוצה יכול/ה לשנות את זה.',
     'name-too-long': 'השם ארוך מדי — עד 60 תווים.'
