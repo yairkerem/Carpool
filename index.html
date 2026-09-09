@@ -281,7 +281,7 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 .call{text-decoration:none;font-size:15px;line-height:1;padding:2px}
 .chip{
   display:inline-flex;align-items:center;gap:5px;flex:none;
-  padding:3px 10px;border-radius:999px;font-size:13px;font-weight:600;
+  padding:3px 10px;border-radius:7px;font-size:13px;font-weight:600;
   background:var(--line);color:var(--ink);
 }
 .chip.dot::before{
@@ -293,11 +293,30 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 /* Half again the size, but only on a leg. Who is driving is the question the
    board exists to answer, read at arm's length in a car park, while the same
    chip in settings or the header is a label on something you are already
-   looking at. The dot and the padding grow with the text, or a bigger name
-   sits in a pill built for a smaller one. */
-.drow .chip{font-size:19px;padding:5px 14px;gap:7px}
+   looking at. */
+.drow .chip{font-size:19px;padding:5px 13px;gap:7px}
 .drow .chip.dot::before{width:12px;height:12px}
 .drow .call{font-size:19px;padding:3px}
+
+/* A name plate rather than a filled pill: the card's own background, the
+   name in ink, and the parent's colour as a bar down the leading edge. A
+   solid lozenge of colour at this size fought the leg's own tint and turned
+   every name into a different loud shape; as a bar the colour still says
+   whose name it is without being the loudest thing on the card.
+   inline-start, so in a right-to-left board the bar is on the right, where
+   the eye starts. */
+.drow .chip.solid{
+  background:var(--card);
+  /* A wash of the parent's own colour, so a plate is distinct from whatever
+     it sits on — the green of a sorted leg or the plain white of an unsorted
+     one — and still reads as theirs. Declared twice: the flat card colour is
+     what an older browser gets, and it is perfectly fine. */
+  background:color-mix(in srgb, var(--c, #888) 12%, var(--card));
+  color:var(--ink);
+  border:1px solid var(--line);
+  border-inline-start:5px solid var(--c,var(--muted));
+  padding-inline-start:11px;
+}
 /* Full width inside its column, and in the leg's own colour, so the tap that
    puts you on the outward run never looks like the one that brings them home. */
 .act{
@@ -866,7 +885,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 61;
+const APP_VERSION = 62;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -2181,15 +2200,11 @@ async function legAction(btn, ev, leg, action){
     }
     state.offline = false;
     saveBoard();
-    /* The name appearing on the leg is the obvious feedback, but it appears
-       the instant the button is pressed — before the server has said anything
-       — so on its own it says "pressed", not "saved". This is the difference,
-       and it is why a failure below can still take the name away again. */
-    /* "ירדתם מהלוך" runs the preposition into the noun and reads as a
-       different word altogether. Said as a negation instead. */
-    banner(action === 'claim'
-      ? 'נשמר — אתם מסיעים ' + (isTo ? 'הלוך' : 'חזור') + '.'
-      : 'נשמר — כבר לא מסיעים ' + (isTo ? 'הלוך' : 'חזור') + '.');
+    /* Nothing said. The chip arriving or going is the answer, and this is the
+       one save you watch happen — a line of text as well is noise on a board
+       that gets tapped several times in a sitting. A failure still speaks,
+       below, because that is the moment the chip goes back and needs it. */
+    banner('');
   } catch (err) {
     ev[driverKey] = before;
     render();
