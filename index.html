@@ -649,6 +649,11 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     <div class="rowbtns" style="margin-top:10px">
       <button type="button" id="b-drivers-save">שמירת הגדרות הקבוצה</button>
     </div>
+    <!-- Its own answer, under its own button. The connect form's message line
+         is at the top of a screen well over two phone screens long, so a
+         confirmation posted there for a button down here is a confirmation
+         nobody sees — the button animates and nothing appears to happen. -->
+    <div id="group-msg" class="msg" hidden style="margin:12px 0 0"></div>
   </div>
 
   <div class="sect" id="people-sect" hidden>
@@ -892,7 +897,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 67;
+const APP_VERSION = 68;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -2831,6 +2836,7 @@ function openSetup(message){
   $('i-drivers').value = state.driversWanted || DEFAULT_DRIVERS_WANTED;
   $('i-gname').value = state.group || '';
   $('i-remind').value = state.remindAt || '';
+  say('group-msg', '');
   paintPush();
 
   /* A fresh copy each time the screen opens, so backing out of it and coming
@@ -3179,13 +3185,13 @@ function addPlace(){
   const name = box.value.trim().replace(/\s+/g, ' ');
   if (!name) return;
   if (editPlaces.some(p => p.toLowerCase() === name.toLowerCase())){
-    say('setup-msg', 'המקום הזה כבר ברשימה.', 'err');
+    say('group-msg', 'המקום הזה כבר ברשימה.', 'err');
     box.select();
     return;
   }
   editPlaces.push(name);
   box.value = '';
-  say('setup-msg', '');
+  say('group-msg', '');
   paintPlacesEdit();
   box.focus();                       // several in a row is the normal way to fill it
 }
@@ -3292,9 +3298,9 @@ async function pushGroupSettings(){
   const name = $('i-gname').value.trim().replace(/\s+/g, ' ');
   const n = Math.round(Number($('i-drivers').value));
 
-  if (!name){ say('setup-msg', 'לקבוצה צריך שם.', 'err'); return null; }
+  if (!name){ say('group-msg', 'לקבוצה צריך שם.', 'err'); return null; }
   if (!(n >= 1 && n <= MAX_DRIVERS_WANTED)){
-    say('setup-msg', 'מספר הנהגים צריך להיות בין 1 ל-' + MAX_DRIVERS_WANTED + '.', 'err');
+    say('group-msg', 'מספר הנהגים צריך להיות בין 1 ל-' + MAX_DRIVERS_WANTED + '.', 'err');
     return null;
   }
 
@@ -3318,7 +3324,7 @@ async function pushGroupSettings(){
   }
   const at = readTime($('i-remind').value);
   if (at === null){
-    say('setup-msg', 'שעת תזכורת לא ברורה. אפשר לכתוב 19:00, 1900 או 19.', 'err');
+    say('group-msg', 'שעת תזכורת לא ברורה. אפשר לכתוב 19:00, 1900 או 19.', 'err');
     return null;
   }
   const wantAt = at || '19:00';
@@ -3340,16 +3346,16 @@ async function pushGroupSettings(){
 }
 
 async function saveGroupSettings(){
-  say('setup-msg', 'שומר…', 'ok');
+  say('group-msg', 'שומר…', 'ok');
   let done;
   try {
     done = await pushGroupSettings();
   } catch (err) {
-    say('setup-msg', netMessage(err), 'err');
+    say('group-msg', netMessage(err), 'err');
     return;
   }
   if (done === null) return;                    // refused, and already said so
-  if (!done.length){ say('setup-msg', 'אין מה לשמור — שום דבר לא השתנה.', 'ok'); return; }
+  if (!done.length){ say('group-msg', 'אין מה לשמור — שום דבר לא השתנה.', 'ok'); return; }
 
   saveBoard();
   render();
@@ -3360,7 +3366,7 @@ async function saveGroupSettings(){
   $('i-drivers').value = state.driversWanted;
   $('i-remind').value = state.remindAt;
   paintPlacesEdit();
-  say('setup-msg', done.join('. ') + '.', 'ok');
+  say('group-msg', done.join('. ') + '.', 'ok');
 }
 
 function groupSaveFailed(r){
@@ -3369,7 +3375,7 @@ function groupSaveFailed(r){
     'not-admin': 'רק מנהל/ת הקבוצה יכול/ה לשנות את זה.',
     'name-too-long': 'השם ארוך מדי — עד 60 תווים.'
   };
-  say('setup-msg', known[r.error] ||
+  say('group-msg', known[r.error] ||
     ('השמירה נכשלה: ' + (r.error || 'שגיאה')), 'err');
 }
 
