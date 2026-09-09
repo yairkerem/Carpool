@@ -866,7 +866,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 60;
+const APP_VERSION = 61;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -2181,7 +2181,15 @@ async function legAction(btn, ev, leg, action){
     }
     state.offline = false;
     saveBoard();
-    banner('');
+    /* The name appearing on the leg is the obvious feedback, but it appears
+       the instant the button is pressed — before the server has said anything
+       — so on its own it says "pressed", not "saved". This is the difference,
+       and it is why a failure below can still take the name away again. */
+    /* "ירדתם מהלוך" runs the preposition into the noun and reads as a
+       different word altogether. Said as a negation instead. */
+    banner(action === 'claim'
+      ? 'נשמר — אתם מסיעים ' + (isTo ? 'הלוך' : 'חזור') + '.'
+      : 'נשמר — כבר לא מסיעים ' + (isTo ? 'הלוך' : 'חזור') + '.');
   } catch (err) {
     ev[driverKey] = before;
     render();
@@ -2713,6 +2721,13 @@ async function saveEvent(){
        event we mean to reveal would be consumed and quietly missed. */
     show('list');
     await refresh(true);
+    /* After the refresh, which clears the banner on its way past. The board
+       does show the event, but a card appearing among other cards is not the
+       same as being told the save worked — and on a repeat it is the only way
+       to know how many were made. */
+    banner(repeat
+      ? 'נשמרו ' + (repeat + 1) + ' אירועים.'
+      : (state.editing ? 'האירוע עודכן.' : 'האירוע נשמר.'));
   } catch (err) {
     say('edit-msg', netMessage(err), 'err');
   } finally {
@@ -2730,8 +2745,10 @@ async function deleteEvent(){
       say('edit-msg', 'המחיקה נכשלה: ' + (r.error || 'שגיאה'), 'err');
       return;
     }
+    const gone = state.editing.title;
     show('list');
     await refresh(true);
+    banner('"' + gone + '" נמחק.');
   } catch (err) {
     say('edit-msg', netMessage(err), 'err');
   }
@@ -2921,6 +2938,10 @@ async function registerMe(extra){
       name: state.group || '', nick: $('i-nick').value.trim(),
       me: state.me, board: (here() || {}).board || null
     };
+    /* joining is only set when adding a *second* group; a phone connecting
+       for the first time has it false and an empty list. Both are joining
+       as far as the parent is concerned. */
+    const wasJoining = state.joining || !state.list.length;
     if (state.joining){
       state.list.push(entry);
       state.i = state.list.length - 1;
@@ -2951,6 +2972,12 @@ async function registerMe(extra){
              '. הצבע והטלפון נשארו כפי שהיו — אפשר לשנות אותם בהגדרות.');
     } else if (also.length){
       banner(also.join('. ') + '.');
+    } else if (wasJoining){
+      banner('הצטרפתם ל' + (state.group || 'קבוצה') + '.');
+    } else {
+      /* A save that answers with nothing but a change of screen leaves the
+         parent to guess whether it took. */
+      banner('הפרטים שלכם נשמרו.');
     }
   } catch (err) {
     /* This used to be a finally with no catch. connect() awaits this call and
