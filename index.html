@@ -200,13 +200,10 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 .col-head .txt{flex:1;min-width:0}
 .col-head h2{font-size:16px;overflow-wrap:anywhere}
 .col-acts{display:flex;flex:none;margin:-4px -6px 0 0}
-/* The ones on an event card stay as they were. They sit beside the thing they
-   act on rather than being hunted for in a bar, and drawn at full strength
-   they would compete with the event's own name. */
-.col-acts .iconbtn{
-  width:30px;height:30px;font-size:15px;
-  color:var(--muted);font-weight:400;-webkit-text-stroke:0;
-}
+/* Smaller than the bar's, but drawn at the same strength — on a card these
+   are the only way to edit, copy or share an event, and a hairline glyph at
+   15px is the easiest thing on the board to miss. */
+.col-acts .iconbtn{width:30px;height:30px;font-size:16px}
 .col-when{font-size:12px;font-weight:700;color:var(--muted);margin-top:3px;
           display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .col-when .done{
@@ -833,7 +830,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 51;
+const APP_VERSION = 55;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -881,6 +878,7 @@ const state = {
   me:null,            // {id,name,color,phone} — id is issued by the backend
   group:'', parents:[], events:[],
   places:[],          // the admin's list of where this group meets
+  newcomers:[],       // members the admin has not been told about yet
   driversWanted:DEFAULT_DRIVERS_WANTED,   // the group's own, once the backend says
 
   offline:false,
@@ -1287,6 +1285,7 @@ function loadBoard(){
   state.group = (b && b.group) || (here() || {}).name || '';
   state.driversWanted = (b && b.driversWanted) || DEFAULT_DRIVERS_WANTED;
   state.places = (b && b.places) || [];
+  state.newcomers = ((here() || {}).news || []).slice();
   state.parents = (b && b.parents) || [];
   state.events = (b && b.events) || [];
 }
@@ -1306,7 +1305,10 @@ function useGroup(i){
   loadBoard();
   boardAt = null;                 // a different group starts at its own today
   persist();
-  banner('');
+  /* Straight from the stored board, rather than waiting for the network to
+     answer: an unread notice about somebody joining should be on screen when
+     the app opens, not only once a refresh has succeeded. */
+  banner(arrivalsText());
   show('list');
   render();
   /* Handed back, so a caller with something to say when the board has arrived
@@ -1378,9 +1380,11 @@ async function refresh(quiet){
       return;
     }
 
+    noteArrivals();
+
     state.offline = false;
     saveBoard();
-    banner('');
+    banner(arrivalsText());        // '' when there is nobody new, so it clears
     render();
   } catch (err) {
     state.offline = true;
@@ -1394,6 +1398,69 @@ async function refresh(quiet){
 function banner(text){
   $('net-bar').hidden = !text;
   $('net-bar').textContent = text || '';
+}
+
+/* ---- who has joined -------------------------------------------- */
+/* The admin is the one who removes members, changes the drivers-per-leg and
+ * answers for the list being right — so they are the one who should know that
+ * somebody new is on it. Nobody else is told: for the rest of the group a new
+ * name is just a new name.
+ *
+ * Worked out on the device rather than recorded on the server. The board
+ * already carries every member on every refresh, so "who is here that was not
+ * here last time I looked" needs no new column and no new request — and it is
+ * per device, which is right: the admin's phone and the admin's laptop have
+ * each seen their own things.
+ *
+ * A second device claiming an existing member is deliberately silent. No row
+ * appears, because that is the point of claiming — a household is one member
+ * however many phones it holds. */
+function noteArrivals(){
+  const m = here();
+  if (!m) return;
+
+  const here_ = state.parents.filter(p => !p.removed);
+  const ids = here_.map(p => p.id);
+
+  /* First time this device has looked at this group — including the first run
+     after this feature shipped. Write down who is here and say nothing, or
+     everyone who ever joined is announced at once as though they had all
+     turned up this morning. */
+  if (!Array.isArray(m.seen)){
+    m.seen = ids;
+    persist();
+    return;
+  }
+
+  const fresh = here_.filter(p => m.seen.indexOf(p.id) < 0 &&
+                                  p.id !== (state.me && state.me.id));
+  m.seen = ids;
+  persist();
+
+  /* Non-admins keep the list up to date but are never told, so that being made
+     admin later does not arrive with a pile of old news. */
+  if (!iAmAdmin() || !fresh.length) return;
+
+  for (const p of fresh){
+    if (state.newcomers.indexOf(p.name) < 0) state.newcomers.push(p.name);
+  }
+  /* Kept with the membership, not just in memory. A background refresh can
+     notice somebody joining while the app is closed, and the record of having
+     seen them has already moved on — so an unread notice that did not survive
+     being closed would be a notice nobody ever read. */
+  m.news = state.newcomers.slice();
+  persist();
+}
+
+/* Kept across refreshes until the admin goes and looks at the list. A notice
+ * that clears itself on the next poll is a notice for whoever happens to be
+ * holding the phone at that second. */
+function arrivalsText(){
+  const n = state.newcomers;
+  if (!n.length) return '';
+  return n.length === 1
+    ? n[0] + ' נרשמ/ה לקבוצה.'
+    : 'נרשמו לקבוצה: ' + n.join(', ') + '.';
 }
 
 /* ---- people --------------------------------------------------- */
@@ -2627,6 +2694,17 @@ function openSetup(message){
   $('ver-line').textContent = 'app v' + APP_VERSION +
     (state.backendVersion ? ' · backend v' + state.backendVersion : '') +
     (state.me ? '\n' + state.me.id + (iAmAdmin() ? ' · admin' : '') : '');
+
+  /* Settings holds the list of members, so arriving here IS reading the
+     notice. Anything still pending has been answered by being here. */
+  const hadNews = state.newcomers.length;
+  state.newcomers = [];
+  const mem_ = here();
+  if (mem_ && mem_.news && mem_.news.length){ mem_.news = []; persist(); }
+  /* Take it off the board too, and only in this case — otherwise going into
+     settings while offline would clear the "showing what was last loaded"
+     line, which is still true. */
+  if (hadNews) banner('');
 
   $('claim-box').hidden = true;      // a stale chooser must not outlive its question
   say('setup-msg', message || '', message ? 'err' : '');
