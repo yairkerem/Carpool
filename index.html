@@ -820,7 +820,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 49;
+const APP_VERSION = 50;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -2684,7 +2684,16 @@ async function registerMe(extra){
     show('list');
     render();
     await refresh();
-    if (also.length) banner(also.join('. ') + '.');
+    /* After the refresh, or the refresh's own banner('') wipes it. A claim
+       deserves saying out loud: the parent typed a name and a phone number and
+       this device kept neither, because it joined a record that already had
+       them. Silence there reads as the form having been ignored. */
+    if (extra && extra.claim){
+      banner('המכשיר הזה מחובר כ' + state.me.name +
+             '. הצבע והטלפון נשארו כפי שהיו — אפשר לשנות אותם בהגדרות.');
+    } else if (also.length){
+      banner(also.join('. ') + '.');
+    }
   } catch (err) {
     /* This used to be a finally with no catch. connect() awaits this call and
        has its own catch, so the first-run path always reported failures — but
@@ -2704,9 +2713,17 @@ async function registerMe(extra){
  * keeping your rides, your colour and your admin flag. */
 function askClaim(candidates, name){
   $('claim-head').textContent = 'כבר יש "' + name + '" בקבוצה';
-  $('claim-lede').textContent = candidates.length > 1
-    ? 'אם אחד מהם זה אתם, בחרו בו והמכשיר הזה ימשיך מאותו חשבון.'
-    : 'אם זה אתם, בחרו בשם והמכשיר הזה ימשיך מאותו חשבון — כך לא נוצר חבר כפול בקבוצה.';
+  /* Two different people arrive here. One is the same parent on a second
+     device; the other is a partner whose household is already registered, and
+     they would not recognise themselves in "this is your other phone". Both
+     want the same answer, so the wording has to name both — otherwise the
+     household picks "אני הורה אחר/ת" and the family ends up on the board
+     twice, which is the thing this screen exists to prevent. */
+  $('claim-lede').textContent =
+    (candidates.length > 1
+      ? 'אם אחד מהם זה אתם — או המשפחה שלכם, שכבר נרשמה על ידי בן/בת הזוג — בחרו בו. '
+      : 'אם זה אתם, או המשפחה שלכם שכבר נרשמה על ידי בן/בת הזוג, בחרו בשם. ') +
+    'המכשיר הזה ימשיך מאותה רשומה: שיבוץ אחד בלוח, ושני המכשירים יכולים לשבץ ולבטל.';
 
   const list = $('claim-list');
   list.textContent = '';

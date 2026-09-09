@@ -157,7 +157,7 @@ admin ever needs to change — a phone lost, a family leaving — the `admin`
 column in the `Parents` tab is a plain `1` or blank, and you own the
 spreadsheet. Put the `1` on whoever should have it.
 
-### One person, however many devices
+### One entry, however many devices
 
 Registering used to be per device, so a laptop and a phone became two members.
 Now a device with no stored identity that registers under a name the group
@@ -165,6 +165,22 @@ already has is offered that member to continue as — pick yourself and the
 device carries on as you, keeping your rides, your colour and your admin flag.
 Two parents who genuinely share a name can say **לא, אני הורה אחר/ת** and get
 their own entry, which is why the app asks instead of merging by itself.
+
+**A household that wants to appear once** uses the same door. One parent
+registers under the name the board should show — *משפחת כהן*, *יאיר ונועה*,
+whatever it is — and the other enters that same name and picks it off the list.
+Both phones then carry the one member: one line on a leg, and either of them
+can put the family down to drive or take it off again. The names have to be
+typed alike; spacing does not matter, spelling does.
+
+Joining an existing member **does not overwrite it**. The second phone has
+never held that member's colour or phone number — it shows the first swatch and
+an empty phone box, because it is a different phone — so writing its form over
+the record would change the chip the whole group recognises and take the
+household's number off every ride they are down to drive. The record is left
+exactly as it is and the app says so; either device can then edit it from
+settings, deliberately. That is only true of joining: on your own device an
+empty phone box still means "remove my number", because there it is an edit.
 
 Settings shows the device's own id under the version, next to the word `admin`
 when the group agrees. Compare it against the `id` column in the `Parents` tab:

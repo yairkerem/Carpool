@@ -29,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 12;
+const BACKEND_VERSION = 13;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -713,12 +713,24 @@ function saveParent(parent) {
     /* The very first parent through the door is the admin. */
     const anyAdmin = all.some(p => p.admin === '1' && p.removed !== '1');
 
+    /* A claim says "I am this member" — not "I am this member, and here are
+     * new details for them". The joining device's form has never held this
+     * member's colour or phone: it shows the first swatch and an empty phone
+     * box, because it is a different phone. Writing that over the row would
+     * change the chip the whole group recognises on the board, and an empty
+     * phone box would quietly take the household's number off every ride they
+     * are down to drive.
+     *
+     * So a claim attaches the device and leaves the record exactly as it is.
+     * Either device can edit it afterwards from settings, deliberately. */
+    const claiming = !!(parent.claim && existing);
+
     const row = {
       _row: existing ? existing._row : 0,
       id: existing ? existing.id : uid(),
-      name: String(parent.name).trim(),
-      color: String(parent.color || ''),
-      phone: String(parent.phone || ''),
+      name: claiming ? existing.name : String(parent.name).trim(),
+      color: claiming ? existing.color : String(parent.color || ''),
+      phone: claiming ? existing.phone : String(parent.phone || ''),
       email: String(parent.email || (existing ? existing.email : '')),
       updatedAt: new Date().toISOString(),
       admin: existing ? existing.admin : (anyAdmin ? '' : '1'),
