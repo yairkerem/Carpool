@@ -290,6 +290,14 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 }
 .chip.solid{background:var(--c,var(--muted));color:#fff}
 .chip.solid::before{display:none}
+/* Half again the size, but only on a leg. Who is driving is the question the
+   board exists to answer, read at arm's length in a car park, while the same
+   chip in settings or the header is a label on something you are already
+   looking at. The dot and the padding grow with the text, or a bigger name
+   sits in a pill built for a smaller one. */
+.drow .chip{font-size:19px;padding:5px 14px;gap:7px}
+.drow .chip.dot::before{width:12px;height:12px}
+.drow .call{font-size:19px;padding:3px}
 /* Full width inside its column, and in the leg's own colour, so the tap that
    puts you on the outward run never looks like the one that brings them home. */
 .act{
@@ -858,7 +866,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 59;
+const APP_VERSION = 60;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -3530,6 +3538,21 @@ $('b-push').onclick = togglePush;
 /* 1900 becomes 19:00 on the way out of the box, the same as the event
    times — one set of rules for every time in the app. */
 $('i-remind').addEventListener('blur', () => tidyTime('i-remind'));
+
+/* Tapping a filled-in time selects what is there, so the first digit typed
+   replaces it rather than landing wherever the caret happened to fall — which
+   on a field that always arrives holding 19:00 means "19:0019:30".
+   Selected rather than emptied: tapping one and thinking better of it should
+   leave the time as it was. The date field goes along with them, being typed
+   the same way. */
+for (const id of ['e-time', 'e-back', 'e-date', 'i-remind']){
+  $(id).addEventListener('focus', function (){
+    const box = this;
+    /* After the browser has placed its own caret, or it lands on top of the
+       selection and undoes it — iOS especially. */
+    setTimeout(() => { if (document.activeElement === box) box.select(); }, 0);
+  });
+}
 $('b-share-send').onclick = shareInvite;
 /* The link on its own, for pasting somewhere the share sheet cannot reach —
    and for looking at, when an invitation has arrived at the other end broken
