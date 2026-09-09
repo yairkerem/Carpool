@@ -29,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 18;
+const BACKEND_VERSION = 19;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -79,7 +79,8 @@ let CURRENT = null;
 
 /* Actions that change the board, and so are closed to a removed parent. */
 const WRITES = ['me', 'save', 'remove', 'claim', 'release', 'ride', 'kick',
-                'drivers', 'rename', 'places', 'push', 'remindat', 'joined'];
+                'drivers', 'rename', 'places', 'push', 'remindat', 'joined',
+                'group'];
 
 /* Ambiguous characters left out: a code gets read off one phone and typed into
  * another, and l/1 and O/0 are where that goes wrong. */
@@ -275,6 +276,77 @@ function setGroupName(name, byId) {
     writeRow(sh, GROUP_COLS, row);
     CURRENT = row;
     return { ok: true, group: tidy };
+  });
+}
+
+/* Everything the group's settings screen can change, in one request under one
+ * lock.
+ *
+ * It used to be one request per field — rename, places, remindat, drivers —
+ * fired one after another from a single press of Save. Four round trips, four
+ * separate acquisitions of the script lock, and four separate chances to queue
+ * behind whatever else the deployment happens to be doing, each with its own
+ * timeout. A save is one intention and should cost one request.
+ *
+ * The individual actions are still routed, because a phone on an older build
+ * talking to this backend will go on using them.
+ *
+ * Every field is optional: only what changed is sent, and anything absent is
+ * left exactly as it was. */
+function setGroupSettings(req) {
+  return withLock(function () {
+    const by = parents().filter(p => p.id === req.by)[0];
+    if (!by || by.admin !== '1' || by.removed === '1') return { ok: false, error: 'not-admin' };
+
+    const sh = sheet('Groups', GROUP_COLS);
+    const row = readAll(sh, GROUP_COLS).filter(g => g.id === CURRENT.id)[0];
+    if (!row) return { ok: false, error: 'not found' };
+
+    /* Everything is checked before anything is written, so a bad reminder time
+       cannot leave the name changed and the rest not. */
+    let name = null, drivers = null, at = null, places = null;
+
+    if (req.name !== undefined) {
+      name = cleanName(req.name);
+      if (!name) return { ok: false, error: 'name required' };
+      if (name.length > 60) return { ok: false, error: 'name-too-long' };
+    }
+    if (req.drivers !== undefined) {
+      drivers = Math.round(Number(req.drivers));
+      if (!(drivers >= 1 && drivers <= MAX_DRIVERS_WANTED)) {
+        return { ok: false, error: 'out-of-range' };
+      }
+    }
+    if (req.remindAt !== undefined) {
+      const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(String(req.remindAt || '').trim());
+      if (!m) return { ok: false, error: 'bad-time' };
+      at = m[1].padStart(2, '0') + ':' + m[2];
+    }
+    if (req.places !== undefined) {
+      places = [];
+      (Array.isArray(req.places) ? req.places : []).forEach(function (raw) {
+        const one = cleanName(raw).slice(0, MAX_PLACE_LEN);
+        if (!one) return;
+        if (places.some(p => p.toLowerCase() === one.toLowerCase())) return;
+        if (places.length < MAX_PLACES) places.push(one);
+      });
+    }
+
+    if (name !== null) row.name = name;
+    if (drivers !== null) row.driversWanted = String(drivers);
+    if (at !== null) row.remindAt = at;
+    if (places !== null) row.places = JSON.stringify(places);
+
+    writeRow(sh, GROUP_COLS, row);
+    CURRENT = row;
+
+    return {
+      ok: true,
+      group: CURRENT.name || '',
+      driversWanted: driversWanted(),
+      remindAt: remindAt(),
+      places: groupPlaces()
+    };
   });
 }
 
@@ -715,6 +787,7 @@ function doPost(e) {
       case 'drivers': return json(setDriversWanted(req.n, req.by));
       case 'rename':  return json(setGroupName(req.name, req.by));
       case 'places':  return json(setPlaces(req.places, req.by));
+      case 'group':   return json(setGroupSettings(req));
       case 'push':    return json(setPush(req.me, req.sub));
       case 'remindat':return json(setRemindAt(req.at, req.by));
       default:        return json({ ok: false, error: 'unknown action: ' + req.action });

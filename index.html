@@ -897,7 +897,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 68;
+const APP_VERSION = 69;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -3297,53 +3297,59 @@ async function pushGroupSettings(){
 
   const name = $('i-gname').value.trim().replace(/\s+/g, ' ');
   const n = Math.round(Number($('i-drivers').value));
+  const at = readTime($('i-remind').value);
 
   if (!name){ say('group-msg', 'לקבוצה צריך שם.', 'err'); return null; }
   if (!(n >= 1 && n <= MAX_DRIVERS_WANTED)){
     say('group-msg', 'מספר הנהגים צריך להיות בין 1 ל-' + MAX_DRIVERS_WANTED + '.', 'err');
     return null;
   }
-
-  const done = [];
-  if (name !== state.group){
-    const r = await api({ action:'rename', name: name, by: state.me.id }, 25000);
-    if (!r.ok){ groupSaveFailed(r); return null; }
-    state.group = r.group;
-    const m = here();
-    if (m){ m.name = r.group; persist(); }
-    done.push('השם עודכן');
-  }
-  if (!sameList(editPlaces, state.places)){
-    const r = await api({ action:'places', places: editPlaces, by: state.me.id }, 25000);
-    if (!r.ok){ groupSaveFailed(r); return null; }
-    state.places = r.places || [];
-    editPlaces = state.places.slice();
-    done.push(state.places.length
-      ? 'רשימת המקומות עודכנה (' + state.places.length + ')'
-      : 'רשימת המקומות רוקנה');
-  }
-  const at = readTime($('i-remind').value);
   if (at === null){
     say('group-msg', 'שעת תזכורת לא ברורה. אפשר לכתוב 19:00, 1900 או 19.', 'err');
     return null;
   }
   const wantAt = at || '19:00';
-  if (wantAt !== state.remindAt){
-    const r = await api({ action:'remindat', at: wantAt, by: state.me.id }, 25000);
-    if (!r.ok){ groupSaveFailed(r); return null; }
-    state.remindAt = r.remindAt;
-    done.push('התזכורת תישלח בסביבות ' + r.remindAt);
-  }
+
+  /* One request carrying only what changed, rather than one request per field.
+     Four of them went out from a single press of Save, each taking the script
+     lock on its own and each with its own timeout — four chances to queue
+     behind whatever else the deployment was doing. A save is one intention. */
+  const req = { action:'group', by: state.me.id };
+  const done = [];
+
+  if (name !== state.group){ req.name = name; done.push('השם עודכן'); }
   if (n !== state.driversWanted){
-    const r = await api({ action:'drivers', n: n, by: state.me.id }, 25000);
-    if (!r.ok){ groupSaveFailed(r); return null; }
-    state.driversWanted = r.driversWanted;
+    req.drivers = n;
     /* "עם 1 נהגים" is not a sentence anybody writes. */
-    done.push('נסיעה נחשבת מסודרת עם ' +
-      (r.driversWanted === 1 ? 'נהג אחד' : r.driversWanted + ' נהגים'));
+    done.push('נסיעה נחשבת מסודרת עם ' + (n === 1 ? 'נהג אחד' : n + ' נהגים'));
   }
+  if (wantAt !== state.remindAt){
+    req.remindAt = wantAt;
+    done.push('התזכורת תישלח בסביבות ' + wantAt);
+  }
+  if (!sameList(editPlaces, state.places)){
+    req.places = editPlaces;
+    done.push(editPlaces.length
+      ? 'רשימת המקומות עודכנה (' + editPlaces.length + ')'
+      : 'רשימת המקומות רוקנה');
+  }
+  if (!done.length) return [];
+
+  const r = await api(req, 25000);
+  if (!r.ok){ groupSaveFailed(r); return null; }
+
+  /* Taken from the reply rather than from what was sent: the backend cleans
+     and caps these, and the screen should show what was actually kept. */
+  state.group = r.group;
+  state.driversWanted = r.driversWanted;
+  state.remindAt = r.remindAt;
+  state.places = r.places || [];
+  editPlaces = state.places.slice();
+  const m = here();
+  if (m && m.name !== r.group){ m.name = r.group; persist(); }
   return done;
 }
+
 
 async function saveGroupSettings(){
   say('group-msg', 'שומר…', 'ok');
