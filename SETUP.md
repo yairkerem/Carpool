@@ -282,6 +282,75 @@ There is no way to do this from the app, on purpose: it logs every member out
 until they have the new code, which is not a button anybody should find by
 accident.
 
+## Push notifications
+
+Two of them: a reminder to each driver on the evening before a ride they are
+down for, and a note to the admin when somebody new joins.
+
+**Why there is a second piece to deploy.** A web push needs a VAPID token
+signed with ECDSA P-256 and a payload encrypted through an ECDH key agreement.
+Apps Script has neither — HMAC and RSA are the whole of its crypto — so it
+cannot talk to a push service at all. It decides *who* to tell and *what*, and
+hands that to [`push-worker.js`](push-worker.js), a Cloudflare Worker that does
+the twenty lines of cryptography it cannot. The worker stores nothing;
+subscriptions live in the `Parents` sheet beside the parent they belong to.
+
+**iPhones must install the app first.** iOS grants push only to an app added to
+the Home Screen, on 16.4 or newer — in a Safari tab the API is simply absent.
+The app says so on that screen rather than offering a button that cannot work.
+Android is fine either way, though installing is better there too.
+
+### Set up the relay
+
+1. [dash.cloudflare.com](https://dash.cloudflare.com) → **Workers & Pages** →
+   **Create** → **Worker**. Any name. Paste [`push-worker.js`](push-worker.js)
+   over the sample and **Deploy**. Copy the worker's URL
+2. **Settings → Variables and Secrets**, and add three **secrets** — secrets,
+   not plain-text variables, so they cannot be read back out:
+
+   | Name | Value |
+   |---|---|
+   | `VAPID_JWK` | the private key JSON, from whoever set this up |
+   | `VAPID_PUBLIC` | the public key, the same string as `VAPID_PUBLIC` in `index.html` |
+   | `VAPID_SUBJECT` | `mailto:` and your address |
+   | `RELAY_SECRET` | a long random string you invent |
+
+3. In the Apps Script editor, **Project Settings → Script properties**, add:
+
+   | Name | Value |
+   |---|---|
+   | `PUSH_RELAY` | the worker's URL |
+   | `RELAY_SECRET` | the same string as above |
+
+4. The manifest already pins the two scopes this needs —
+   `script.external_request` to reach the worker and `script.scriptapp` to run
+   in the evening. Redeploy, and accept them when asked
+5. Run **`installReminders`** once from the editor
+6. On a phone: settings → **הפעלת התראות**, allow. Then run **`testPush`** from
+   the editor — it sends to every subscribed device and prints what happened
+
+The keys are a pair: the public half is in `index.html` where anyone can read
+it, which is fine and how it is meant to work — it is what a browser is handed
+to create a subscription. The private half exists only in the worker's secrets.
+**It must never be committed.** Anyone holding it can send notifications to
+your parents.
+
+### What gets sent
+
+Each driver, on the evening before: *מחר ב-16:00 — אתם מסיעים הלוך, מגרש הדשא.*
+Only to a parent who is actually down to drive, and only for tomorrow.
+
+The time is the group's own — the admin sets it in settings, default 19:00.
+Apps Script fires a time trigger somewhere inside the hour, so it is an
+evening's notice rather than an appointment, which is all it needs to be. The
+`remindedOn` column is what stops a second send when the trigger fires twice
+inside one hour, which it is entitled to do.
+
+A subscription dies when a phone is reset or the app removed, and the push
+service then answers 404 or 410 for it forever. Those are cleared out of the
+sheet automatically; a 500 or a timeout is left alone, since it may well work
+tomorrow.
+
 ## Optional: the nightly nudge
 
 A carpool fails quietly — nobody claimed tomorrow morning and nobody noticed.

@@ -595,6 +595,14 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
         אפשר תמיד לכתוב מקום אחר במקום לבחור.</p>
     </div>
 
+    <label class="setting" for="i-remind" style="margin-top:14px">
+      <span>שעת התזכורת בערב שלפני</span>
+      <input id="i-remind" type="text" dir="ltr" inputmode="numeric" pattern="[0-9:]*"
+             maxlength="5" autocomplete="off" placeholder="19:00">
+    </label>
+    <p class="hint">מי שמשובץ לנסיעה מקבל התראה בערב שלפניה. השעה מקורבת —
+      ההתראה יוצאת בתוך השעה הזאת, כדי שתהיה התראה של ערב מראש.</p>
+
     <div class="rowbtns" style="margin-top:10px">
       <button type="button" id="b-drivers-save">שמירת הגדרות הקבוצה</button>
     </div>
@@ -607,6 +615,17 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
       כמנהל/ת אפשר להסיר הורה מהקבוצה. השיבוצים העתידיים שלו/ה משתחררים,
       והנסיעות שכבר היו נשארות כפי שהיו.
     </p>
+  </div>
+
+  <!-- Per device, not per parent: a subscription belongs to this browser on
+       this phone, so the laptop and the phone are asked separately. -->
+  <div class="sect" id="push-sect" hidden>
+    <h3>התראות</h3>
+    <p class="hint" id="push-note"></p>
+    <div class="rowbtns" style="margin-top:10px">
+      <button type="button" id="b-push">הפעלת התראות</button>
+    </div>
+    <p class="hint" id="push-msg" hidden></p>
   </div>
 
   <!-- Which groups this phone is in. Moving between them is the name at the
@@ -830,7 +849,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 55;
+const APP_VERSION = 56;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -843,6 +862,12 @@ const APP_VERSION = 55;
  * group's settings behind without a word. It saves both now, but the label
  * should still say which half is its own. */
 const SAVE_MINE = 'שמירת הפרטים שלי';
+
+/* The public half of the relay's VAPID key pair. Public by design — it is
+ * what a browser is handed to create a subscription, and it is useless without
+ * the private half, which lives only in the worker's secrets. */
+const VAPID_PUBLIC =
+  'BIcdkb6DgUggjq0r-mXLDF8Z_ZByamhiuGzbjy-RlxyWkdkwhN3Z2mC5g15u4R6h35RxXxSyIuUxvWFltZuFdcc';
 
 const DEFAULT_DRIVERS_WANTED = 2;
 const MAX_DRIVERS_WANTED = 6;
@@ -878,6 +903,7 @@ const state = {
   me:null,            // {id,name,color,phone} — id is issued by the backend
   group:'', parents:[], events:[],
   places:[],          // the admin's list of where this group meets
+  remindAt:'19:00',   // when the evening-before reminder goes out
   newcomers:[],       // members the admin has not been told about yet
   driversWanted:DEFAULT_DRIVERS_WANTED,   // the group's own, once the backend says
 
@@ -1275,7 +1301,8 @@ function saveBoard(){
   if (!m) return;
   m.board = {
     group: state.group, driversWanted: state.driversWanted,
-    places: state.places, parents: state.parents, events: state.events
+    places: state.places, remindAt: state.remindAt,
+    parents: state.parents, events: state.events
   };
   persist();
 }
@@ -1285,6 +1312,7 @@ function loadBoard(){
   state.group = (b && b.group) || (here() || {}).name || '';
   state.driversWanted = (b && b.driversWanted) || DEFAULT_DRIVERS_WANTED;
   state.places = (b && b.places) || [];
+  state.remindAt = (b && b.remindAt) || '19:00';
   state.newcomers = ((here() || {}).news || []).slice();
   state.parents = (b && b.parents) || [];
   state.events = (b && b.events) || [];
@@ -1370,6 +1398,7 @@ async function refresh(quiet){
     if (r.version) state.backendVersion = r.version;
     if (r.driversWanted) state.driversWanted = r.driversWanted;
     if (r.places) state.places = r.places;
+    if (r.remindAt) state.remindAt = r.remindAt;
 
     /* Reading the board is still allowed after removal — the secret is the
        group's, not each parent's — so the app has to notice on its own that
@@ -1398,6 +1427,116 @@ async function refresh(quiet){
 function banner(text){
   $('net-bar').hidden = !text;
   $('net-bar').textContent = text || '';
+}
+
+/* ---- notifications ---------------------------------------------- */
+/* Per device. A subscription belongs to this browser on this phone, so the
+ * question is asked of each one separately, and the backend keeps whichever
+ * answered last.
+ *
+ * iOS grants push only to an app that has been added to the Home Screen, and
+ * only from 16.4. In a Safari tab the API is simply absent, which is why the
+ * section says so rather than offering a button that cannot work. */
+function pushSupported(){
+  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+}
+
+/* Standalone means launched from the Home Screen rather than in a tab — the
+ * thing iOS requires before it will allow any of this. */
+function installed(){
+  return window.matchMedia('(display-mode: standalone)').matches ||
+         window.navigator.standalone === true;
+}
+
+function isIOS(){
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+async function currentSub(){
+  if (!pushSupported() || !swReg) return null;
+  try { return await swReg.pushManager.getSubscription(); }
+  catch (err) { return null; }
+}
+
+async function paintPush(){
+  const sect = $('push-sect');
+  sect.hidden = !state.me;
+  if (sect.hidden) return;
+
+  const btn = $('b-push');
+  const note = $('push-note');
+
+  if (!pushSupported() || (isIOS() && !installed())){
+    btn.hidden = true;
+    note.textContent = isIOS()
+      ? 'באייפון ההתראות עובדות רק אחרי הוספת האפליקציה למסך הבית: בספארי, שיתוף ← הוספה למסך הבית. אחר כך לפתוח משם ולהפעיל כאן.'
+      : 'הדפדפן הזה לא תומך בהתראות.';
+    return;
+  }
+  btn.hidden = false;
+
+  if (Notification.permission === 'denied'){
+    btn.disabled = true;
+    btn.textContent = 'ההתראות חסומות';
+    note.textContent = 'הדפדפן חוסם התראות מהאתר הזה. אפשר לשנות בהגדרות האתר בדפדפן.';
+    return;
+  }
+
+  btn.disabled = false;
+  const sub = await currentSub();
+  btn.textContent = sub ? 'כיבוי התראות' : 'הפעלת התראות';
+  note.textContent = sub
+    ? 'המכשיר הזה יקבל תזכורת בערב שלפני נסיעה שאתם משובצים אליה.'
+    : 'תזכורת בערב שלפני כל נסיעה שאתם משובצים אליה. ההגדרה היא למכשיר הזה בלבד.';
+}
+
+async function togglePush(){
+  const btn = $('b-push');
+  say('push-msg', '');
+  btn.disabled = true;
+  try {
+    const existing = await currentSub();
+    if (existing){
+      await existing.unsubscribe();
+      await api({ action:'push', sub: null }, 20000);
+      say('push-msg', 'ההתראות כובו במכשיר הזה.', 'ok');
+    } else {
+      const allowed = await Notification.requestPermission();
+      if (allowed !== 'granted'){
+        say('push-msg', 'בלי אישור הדפדפן אי אפשר לשלוח התראות.', 'err');
+        return;
+      }
+      const sub = await swReg.pushManager.subscribe({
+        /* Required, and meant literally: every push must become a visible
+           notification or the browser takes the permission away. */
+        userVisibleOnly: true,
+        applicationServerKey: urlB64ToBytes(VAPID_PUBLIC)
+      });
+      const r = await api({ action:'push', sub: sub.toJSON() }, 20000);
+      if (!r.ok){
+        await sub.unsubscribe();       // do not leave one the backend never got
+        say('push-msg', 'ההרשמה נכשלה: ' + (r.error || 'שגיאה'), 'err');
+        return;
+      }
+      say('push-msg', 'מוכן. תקבלו תזכורת בערב שלפני נסיעה שלכם.', 'ok');
+    }
+  } catch (err) {
+    say('push-msg', 'לא הצלחנו: ' + (err && err.message ? err.message : 'שגיאה'), 'err');
+  } finally {
+    btn.disabled = false;
+    paintPush();
+  }
+}
+
+/* The subscribe call wants the key as bytes, not the base64url string every
+ * other part of this deals in. */
+function urlB64ToBytes(s){
+  const pad = s.replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(pad + '='.repeat((4 - pad.length % 4) % 4));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
 }
 
 /* ---- who has joined -------------------------------------------- */
@@ -2635,6 +2774,9 @@ function openSetup(message){
   $('group-sect').hidden = !connected || !iAmAdmin();
   $('i-drivers').value = state.driversWanted || DEFAULT_DRIVERS_WANTED;
   $('i-gname').value = state.group || '';
+  $('i-remind').value = state.remindAt || '';
+  paintPush();
+
   /* A fresh copy each time the screen opens, so backing out of it and coming
      back does not show yesterday's half-finished edit. */
   editPlaces = state.places.slice();
@@ -3086,6 +3228,18 @@ async function pushGroupSettings(){
       ? 'רשימת המקומות עודכנה (' + state.places.length + ')'
       : 'רשימת המקומות רוקנה');
   }
+  const at = readTime($('i-remind').value);
+  if (at === null){
+    say('setup-msg', 'שעת תזכורת לא ברורה. אפשר לכתוב 19:00, 1900 או 19.', 'err');
+    return null;
+  }
+  const wantAt = at || '19:00';
+  if (wantAt !== state.remindAt){
+    const r = await api({ action:'remindat', at: wantAt, by: state.me.id }, 25000);
+    if (!r.ok){ groupSaveFailed(r); return null; }
+    state.remindAt = r.remindAt;
+    done.push('התזכורת תישלח בסביבות ' + r.remindAt);
+  }
   if (n !== state.driversWanted){
     const r = await api({ action:'drivers', n: n, by: state.me.id }, 25000);
     if (!r.ok){ groupSaveFailed(r); return null; }
@@ -3116,6 +3270,7 @@ async function saveGroupSettings(){
      fields this just wrote are put back in step. */
   $('i-gname').value = state.group || '';
   $('i-drivers').value = state.driversWanted;
+  $('i-remind').value = state.remindAt;
   paintPlacesEdit();
   say('setup-msg', done.join('. ') + '.', 'ok');
 }
@@ -3340,6 +3495,10 @@ $('i-place-new').addEventListener('keydown', e => {
 });
 
 $('b-share-join').onclick = toggleShareSteps;
+$('b-push').onclick = togglePush;
+/* 1900 becomes 19:00 on the way out of the box, the same as the event
+   times — one set of rules for every time in the app. */
+$('i-remind').addEventListener('blur', () => tidyTime('i-remind'));
 $('b-share-send').onclick = shareInvite;
 /* The link on its own, for pasting somewhere the share sheet cannot reach —
    and for looking at, when an invitation has arrived at the other end broken

@@ -29,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 13;
+const BACKEND_VERSION = 14;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -48,7 +48,7 @@ const EVENT_COLS = [
  * every board written before today reads one field to the left. New columns
  * go on the end, always. */
 const PARENT_COLS = ['id', 'name', 'color', 'phone', 'email', 'updatedAt',
-                     'admin', 'removed', 'group'];
+                     'admin', 'removed', 'group', 'push'];
 
 /* How long a finished event stays on the board. It is still shown for a week
  * after the fact — greyed out, and mostly so it can be copied into next week's
@@ -69,7 +69,7 @@ const RIDERS = { to: 'toRiders', back: 'backRiders' };
  * and the Parents tab carry the code — appended at the end, like every column
  * added after the fact. */
 const GROUP_COLS = ['id', 'name', 'secret', 'driversWanted', 'createdAt', 'removed',
-                    'places'];
+                    'places', 'remindAt', 'remindedOn'];
 
 /* The group this request is for, resolved once in doPost and read by
  * everything downstream rather than threaded through twenty signatures. Safe
@@ -79,7 +79,7 @@ let CURRENT = null;
 
 /* Actions that change the board, and so are closed to a removed parent. */
 const WRITES = ['me', 'save', 'remove', 'claim', 'release', 'ride', 'kick',
-                'drivers', 'rename', 'places'];
+                'drivers', 'rename', 'places', 'push', 'remindat'];
 
 /* Ambiguous characters left out: a code gets read off one phone and typed into
  * another, and l/1 and O/0 are where that goes wrong. */
@@ -322,6 +322,269 @@ function setPlaces(list, byId) {
   });
 }
 
+/* ---------- push ----------
+ *
+ * A web push needs a VAPID token signed with ECDSA P-256 and a payload
+ * encrypted through an ECDH key agreement. Apps Script has neither — HMAC and
+ * RSA are the whole of its crypto — so it cannot talk to a push service at
+ * all. What it can do is decide who should be told and what, and hand that to
+ * something that can: push-worker.js in this repo, a Cloudflare Worker whose
+ * URL goes in the PUSH_RELAY script property.
+ *
+ * Subscriptions live in the Parents sheet beside the parent they belong to.
+ * They are per device, not per person: a parent with a phone and a laptop has
+ * whichever of the two pressed the button, and the last one wins. That is the
+ * honest simple thing — one row, one place to send.
+ */
+const REMIND_HOUR_DEFAULT = 19;
+
+function relay() {
+  return {
+    url: PROPS.getProperty('PUSH_RELAY') || '',
+    secret: PROPS.getProperty('RELAY_SECRET') || ''
+  };
+}
+
+/* This device's subscription, or null to stop being told. Not admin-gated:
+ * being notified about your own rides is nobody else's decision. */
+function setPush(meId, sub) {
+  return withLock(function () {
+    const sh = sheet('Parents', PARENT_COLS);
+    const row = parents().filter(p => p.id === meId)[0];
+    if (!row) return { ok: false, error: 'not found' };
+    row.push = sub ? JSON.stringify(sub) : '';
+    writeRow(sh, PARENT_COLS, row);
+    return { ok: true, push: !!sub };
+  });
+}
+
+/* When the evening reminder goes out. The admin's to set, like the rest of
+ * what the whole group sees. */
+function setRemindAt(at, byId) {
+  return withLock(function () {
+    const by = parents().filter(p => p.id === byId)[0];
+    if (!by || by.admin !== '1' || by.removed === '1') return { ok: false, error: 'not-admin' };
+
+    const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(String(at || '').trim());
+    if (!m && String(at || '').trim()) return { ok: false, error: 'bad-time' };
+
+    const sh = sheet('Groups', GROUP_COLS);
+    const row = readAll(sh, GROUP_COLS).filter(g => g.id === CURRENT.id)[0];
+    if (!row) return { ok: false, error: 'not found' };
+    row.remindAt = m ? (m[1].padStart(2, '0') + ':' + m[2]) : '';
+    writeRow(sh, GROUP_COLS, row);
+    CURRENT = row;
+    return { ok: true, remindAt: remindAt() };
+  });
+}
+
+function remindAt() {
+  const raw = String((CURRENT && CURRENT.remindAt) || '').trim();
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(raw)
+    ? raw
+    : (String(REMIND_HOUR_DEFAULT).padStart(2, '0') + ':00');
+}
+
+/* Hands a batch to the relay and clears out whatever it reports as gone.
+ *
+ * A subscription dies when a phone is reset or the app removed, and the push
+ * service answers 404 or 410 for it forever after. Left in the sheet those
+ * rows are sent to every evening for nothing. Anything else — a 500, a
+ * timeout — is left alone: it may well work tomorrow. */
+function pushSend(items) {
+  const cfg = relay();
+  if (!cfg.url || !cfg.secret || !items.length) return 0;
+
+  let res;
+  try {
+    res = UrlFetchApp.fetch(cfg.url, {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({
+        auth: cfg.secret,
+        messages: items.map(i => ({
+          subscription: i.sub, title: i.title, body: i.body, tag: i.tag, url: i.url
+        }))
+      }),
+      muteHttpExceptions: true
+    });
+  } catch (err) {
+    Logger.log('push relay unreachable: ' + err);
+    return 0;
+  }
+
+  let out;
+  try { out = JSON.parse(res.getContentText()); }
+  catch (err) { Logger.log('push relay said: ' + res.getContentText()); return 0; }
+  if (!out || !out.ok) { Logger.log('push relay refused: ' + res.getContentText()); return 0; }
+
+  const results = out.results || [];
+  let sent = 0;
+  const dead = [];
+  results.forEach(function (r, i) {
+    if (r && r.status >= 200 && r.status < 300) sent++;
+    else if (r && r.gone && items[i]) dead.push(items[i].parentId);
+  });
+  if (dead.length) forgetPush(dead);
+  return sent;
+}
+
+function forgetPush(ids) {
+  withLock(function () {
+    const sh = sheet('Parents', PARENT_COLS);
+    parents().filter(p => ids.indexOf(p.id) >= 0).forEach(function (p) {
+      p.push = '';
+      writeRow(sh, PARENT_COLS, p);
+    });
+    return true;
+  });
+}
+
+/* Everyone in this group who can be reached, as {parentId, sub}. */
+function pushTargets(ids) {
+  const out = [];
+  parents().forEach(function (p) {
+    if (p.removed === '1' || !p.push) return;
+    if (ids && ids.indexOf(p.id) < 0) return;
+    try {
+      const sub = JSON.parse(p.push);
+      if (sub && sub.endpoint) out.push({ parentId: p.id, sub: sub });
+    } catch (err) { /* a mangled cell is not worth failing a send over */ }
+  });
+  return out;
+}
+
+/* Somebody new has registered. The admin is the one who answers for the list
+ * being right, so the admin is the one told — and never about themselves. */
+function notifyNewMember(name, newId) {
+  const admins = parents()
+    .filter(p => p.admin === '1' && p.removed !== '1' && p.id !== newId)
+    .map(p => p.id);
+  if (!admins.length) return;
+
+  const items = pushTargets(admins).map(t => ({
+    parentId: t.parentId, sub: t.sub,
+    title: CURRENT.name || 'הסעות',
+    body: name + ' נרשמ/ה לקבוצה.',
+    tag: 'joined',
+    url: './'
+  }));
+  pushSend(items);
+}
+
+/* ---------- the evening reminder ----------
+ *
+ * Runs hourly and sends a group's reminders once the group's own hour has
+ * come round. Hourly rather than at a fixed time because each group sets its
+ * own; `remindedOn` is what stops a second send when the trigger fires twice
+ * inside one hour, which it is entitled to do.
+ *
+ * Apps Script fires a time trigger somewhere inside the hour, so this is an
+ * evening's notice rather than an appointment. That is all it needs to be:
+ * the point is that a parent finds out tonight rather than at breakfast. */
+function pushReminders() {
+  migrate();
+  allGroups().forEach(function (g) {
+    CURRENT = g;
+    try {
+      remindOneGroup(g);
+    } catch (err) {
+      Logger.log('reminder failed for ' + g.id + ': ' + err);
+    }
+  });
+  CURRENT = null;
+}
+
+function remindOneGroup(group) {
+  const today = todayStamp();
+  if (group.remindedOn === today) return;                 // already done today
+  if (nowMinutes() < timeToMinutes(remindAt())) return;   // not yet this evening
+
+  const tomorrow = shiftDays(today(), 1);
+  const due = state().events.filter(e => e.date === tomorrow);
+
+  const items = [];
+  const byId = {};
+  pushTargets(null).forEach(t => { byId[t.parentId] = t.sub; });
+
+  due.forEach(function (e) {
+    [['toDriver', 'הלוך', e.time], ['backDriver', 'חזור', e.backTime]].forEach(function (leg) {
+      (e[leg[0]] || []).forEach(function (id) {
+        if (!byId[id]) return;
+        items.push({
+          parentId: id, sub: byId[id],
+          title: e.title || 'הסעה מחר',
+          body: 'מחר' + (leg[2] ? ' ב-' + leg[2] : '') + ' — אתם מסיעים ' + leg[1] +
+                (e.place ? ', ' + e.place : '') + '.',
+          tag: 'ride-' + e.id + '-' + leg[0],
+          url: './'
+        });
+      });
+    });
+  });
+
+  /* The stamp is written whether or not there was anything to send. Without
+     it a quiet evening would be retried every hour until midnight. */
+  const sh = sheet('Groups', GROUP_COLS);
+  const row = readAll(sh, GROUP_COLS).filter(x => x.id === group.id)[0];
+  if (row) { row.remindedOn = today; writeRow(sh, GROUP_COLS, row); }
+
+  if (items.length) pushSend(items);
+}
+
+function todayStamp() { return Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd'); }
+function nowMinutes() {
+  return Number(Utilities.formatDate(new Date(), TZ, 'H')) * 60 +
+         Number(Utilities.formatDate(new Date(), TZ, 'm'));
+}
+function timeToMinutes(hhmm) {
+  const p = String(hhmm).split(':');
+  return Number(p[0]) * 60 + Number(p[1]);
+}
+
+/** Run once from the editor to turn the evening reminder on. */
+function installReminders() {
+  removeReminders();
+  ScriptApp.newTrigger('pushReminders').timeBased().everyHours(1).create();
+  return say_('Evening reminders installed. Each group sends at its own time.');
+}
+
+/** ...and off again. Deleting the code does not remove the trigger. */
+function removeReminders() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'pushReminders')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  return say_('Evening reminders removed.');
+}
+
+/** Check the wiring without waiting for the evening: sends to every device in
+ *  every group that has one. */
+function testPush() {
+  migrate();
+  const cfg = relay();
+  const out = ['Relay         ' + (cfg.url || 'NOT SET — add PUSH_RELAY'),
+               'Relay secret  ' + (cfg.secret ? 'set' : 'NOT SET — add RELAY_SECRET'),
+               'Trigger       ' + (ScriptApp.getProjectTriggers()
+                 .filter(t => t.getHandlerFunction() === 'pushReminders').length
+                   ? 'installed' : 'not installed — run installReminders')];
+  allGroups().forEach(function (g) {
+    CURRENT = g;
+    const targets = pushTargets(null);
+    out.push('  ' + g.id + '  ' + (g.name || '(unnamed)') + '   reminds at ' +
+             remindAt() + ', devices subscribed: ' + targets.length);
+    if (targets.length) {
+      const sent = pushSend(targets.map(t => ({
+        parentId: t.parentId, sub: t.sub,
+        title: g.name || 'הסעות', body: 'בדיקה — ההתראות עובדות.',
+        tag: 'test', url: './'
+      })));
+      out.push('     sent ' + sent + ' of ' + targets.length);
+    }
+  });
+  CURRENT = null;
+  return say_(out.join('\n'));
+}
+
 /* The admin's to set, like removing a member — it changes what the whole group
  * sees, so it is not everybody's to change. */
 function setDriversWanted(n, byId) {
@@ -380,7 +643,12 @@ function doPost(e) {
     switch (req.action) {
       case 'ping':    return json(ping());
       case 'state':   return json(state());
-      case 'me':      return json(saveParent(req.parent));
+      case 'me': {
+        const saved = saveParent(req.parent);
+        if (saved.ok && saved.isNew) notifyNewMember(saved.parent.name, saved.parent.id);
+        delete saved.isNew;
+        return json(saved);
+      }
       case 'save':    return json(saveEvent(req.event));
       case 'remove':  return json(removeEvent(req.id));
       case 'claim':   return json(claim(req.id, req.leg, req.parentId));
@@ -390,6 +658,8 @@ function doPost(e) {
       case 'drivers': return json(setDriversWanted(req.n, req.by));
       case 'rename':  return json(setGroupName(req.name, req.by));
       case 'places':  return json(setPlaces(req.places, req.by));
+      case 'push':    return json(setPush(req.me, req.sub));
+      case 'remindat':return json(setRemindAt(req.at, req.by));
       default:        return json({ ok: false, error: 'unknown action: ' + req.action });
     }
   } catch (err) {
@@ -541,6 +811,7 @@ function ping() {
     groupId: CURRENT.id,
     driversWanted: driversWanted(),
     places: groupPlaces(),
+    remindAt: remindAt(),
     sheet: ss.getName(),
     sheetUrl: ss.getUrl()
   };
@@ -590,6 +861,7 @@ function state() {
     groupId: CURRENT.id,
     driversWanted: driversWanted(),
     places: groupPlaces(),
+    remindAt: remindAt(),
     parents: people,
     events: rows,
     now: new Date().toISOString()
@@ -740,6 +1012,10 @@ function saveParent(parent) {
     writeRow(sh, PARENT_COLS, row);
     return {
       ok: true,
+      /* Stripped off in doPost before the app sees it. The announcing is done
+         out there rather than here, so the lock is not held open across a
+         call to the relay. */
+      isNew: !existing,
       parent: { id: row.id, name: row.name, color: row.color,
                 phone: row.phone, admin: row.admin === '1' }
     };

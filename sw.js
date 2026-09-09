@@ -8,7 +8,7 @@
  * cross-origin POST, and the guard in fetch() below only ever handles
  * same-origin GETs.
  */
-const CACHE_VERSION = 'v55';
+const CACHE_VERSION = 'v56';
 const CACHE = 'carpool-shell-' + CACHE_VERSION;
 
 const SHELL = [
@@ -85,4 +85,46 @@ self.addEventListener('fetch', event => {
   }
 
   event.respondWith(caches.match(req).then(hit => hit || fetch(req)));
+});
+
+/* ---- push ------------------------------------------------------
+ * The payload is the whole notification, written by the backend and encrypted
+ * end to end: the push service carries it without being able to read it.
+ *
+ * userVisibleOnly is not a preference — browsers grant a push subscription on
+ * the promise that every message becomes a notification, and one that quietly
+ * does not is how a site loses the permission. So there is a fallback line
+ * rather than a path that shows nothing. */
+self.addEventListener('push', event => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch (err) { data = {}; }
+
+  const title = data.title || 'הסעות';
+  event.waitUntil(self.registration.showNotification(title, {
+    body: data.body || 'יש עדכון בלוח ההסעות.',
+    icon: './icon-car-192.png',
+    badge: './icon-car-192.png',
+    lang: 'he',
+    dir: 'rtl',
+    /* Same tag replaces rather than stacks: two reminders for one ride, sent
+       because a trigger ran twice, should look like one reminder. */
+    tag: data.tag || 'carpool',
+    data: { url: data.url || './' }
+  }));
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const target = new URL((event.notification.data && event.notification.data.url) || './',
+                         self.location.href).href;
+
+  /* Focus the app if it is already open rather than opening a second copy of
+     it — a parent who taps a reminder wants the board, not a new tab. */
+  event.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true })
+    .then(list => {
+      for (const c of list) {
+        if (c.url.indexOf(self.location.origin) === 0 && 'focus' in c) return c.focus();
+      }
+      return clients.openWindow(target);
+    }));
 });
