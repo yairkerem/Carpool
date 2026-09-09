@@ -171,7 +171,9 @@ registers under the name the board should show — *משפחת כהן*, *יאי�
 whatever it is — and the other enters that same name and picks it off the list.
 Both phones then carry the one member: one line on a leg, and either of them
 can put the family down to drive or take it off again. The names have to be
-typed alike; spacing does not matter, spelling does.
+typed alike, but only as far as it shows: spacing, capitals and the
+invisible direction marks that Hebrew picks up from a phone keyboard or a
+pasted WhatsApp message are all ignored. Spelling is what has to match.
 
 Joining an existing member **does not overwrite it**. The second phone has
 never held that member's colour or phone number — it shows the first swatch and

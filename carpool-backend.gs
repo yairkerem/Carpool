@@ -29,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 16;
+const BACKEND_VERSION = 17;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -987,9 +987,34 @@ function ensureAdmin() {
  * id that comes back is what their phone stores and sends from then on. Names
  * are not unique and are not treated as such — two Michals in one class is
  * normal, and the colour is there to tell them apart. */
+/* A name as it should be stored and compared.
+ *
+ * The invisible characters matter more here than anywhere else in the app.
+ * Hebrew typed on a phone, and Hebrew pasted out of WhatsApp especially,
+ * arrives carrying right-to-left and left-to-right marks — U+200F, U+200E,
+ * U+061C — which are laid out but never drawn. Two names that are the same
+ * name on screen, letter for letter, compare as different, and JavaScript's
+ * \s does not match any of them.
+ *
+ * That is not a curiosity. It is a household typing its own name on the
+ * second phone, being told nothing matched, and quietly becoming a second
+ * member of its own group.
+ *
+ * NFC because the same Hebrew letter can arrive composed or decomposed
+ * depending on the keyboard. ZWJ and ZWNJ are deliberately left alone: they
+ * hold emoji sequences together, and a family in somebody's name is theirs. */
+function cleanName(s) {
+  return String(s === null || s === undefined ? '' : s)
+    .normalize('NFC')
+    .replace(/[‎‏؜​﻿]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function sameName(a, b) {
-  return String(a || '').trim().replace(/\s+/g, ' ') ===
-         String(b || '').trim().replace(/\s+/g, ' ');
+  /* Case-blind for the Latin names in a Hebrew group — "Cohen" and "cohen"
+     are one household. Hebrew has no case, so this costs it nothing. */
+  return cleanName(a).toLowerCase() === cleanName(b).toLowerCase();
 }
 
 function saveParent(parent) {
@@ -1054,7 +1079,7 @@ function saveParent(parent) {
     const row = {
       _row: existing ? existing._row : 0,
       id: existing ? existing.id : uid(),
-      name: claiming ? existing.name : String(parent.name).trim(),
+      name: claiming ? existing.name : cleanName(parent.name),
       color: claiming ? existing.color : String(parent.color || ''),
       phone: claiming ? existing.phone : String(parent.phone || ''),
       email: String(parent.email || (existing ? existing.email : '')),
