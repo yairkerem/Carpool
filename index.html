@@ -412,6 +412,11 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 .share-step .copy:active{background:var(--line)}
 #b-share-send{width:100%;margin:0}
 
+/* A section that is asking something, rather than one that is telling you
+   something. Ringed, so that on a screen of grey boxes the one waiting for
+   an answer is the one that looks different. */
+.sect.ask{border:2px solid var(--brand);background:var(--brand-soft)}
+
 .msg{padding:11px 13px;border-radius:11px;font-size:14px;margin-bottom:14px;overflow-wrap:anywhere}
 .msg.err{background:#fee2e2;color:#991b1b}
 .msg.ok{background:var(--brand-soft);color:var(--brand)}
@@ -549,20 +554,24 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
   <!-- Shown only when the group already has somebody by this name. Two
        parents really can share one, so the app asks instead of deciding. -->
-  <div class="sect" id="claim-box" hidden>
+  <div class="actions">
+    <button id="b-connect" class="btn">
+      <span id="connect-spin" class="spin" hidden></span>
+      <span id="connect-label">התחברות</span>
+    </button>
+  </div>
+
+  <!-- Directly under the button that raises it. It used to sit above the
+       form, which on a phone is off the top of the screen once the keyboard
+       is up — so pressing "connect" and being asked a question looked exactly
+       like pressing "connect" and nothing happening. -->
+  <div class="sect ask" id="claim-box" hidden>
     <h3 id="claim-head"></h3>
     <p class="hint" id="claim-lede"></p>
     <div id="claim-list" class="people"></div>
     <div class="actions" style="margin-bottom:0">
       <button type="button" id="b-claim-new" class="btn ghost">לא, אני הורה אחר/ת</button>
     </div>
-  </div>
-
-  <div class="actions">
-    <button id="b-connect" class="btn">
-      <span id="connect-spin" class="spin" hidden></span>
-      <span id="connect-label">התחברות</span>
-    </button>
   </div>
 
   <!-- Admins only. It changes what every parent in the group sees, so it sits
@@ -849,7 +858,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 57;
+const APP_VERSION = 58;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -2975,7 +2984,21 @@ function askClaim(candidates, name){
      loud that the app is waiting, rather than leaving a box to be noticed. */
   say('setup-msg', 'בחרו למטה מי אתם כדי להמשיך.', 'ok');
   $('claim-box').hidden = false;
-  $('claim-box').scrollIntoView({ block:'center' });
+
+  /* Let go of the text field first. While one is focused the phone keeps its
+     keyboard up and scrolls that field back into view, which quietly undoes
+     the scroll below — the question ends up somewhere off-screen and the
+     button looks broken. */
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+
+  /* Then put the choice in front of them, and give the first option focus so
+     a keyboard or a screen reader lands on the question rather than back at
+     the form that raised it. */
+  requestAnimationFrame(() => {
+    $('claim-box').scrollIntoView({ block:'center', behavior:'smooth' });
+    const first = $('claim-list').querySelector('.claimbtn');
+    if (first) first.focus({ preventScroll: true });
+  });
 }
 
 async function connect(){
