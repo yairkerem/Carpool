@@ -109,6 +109,48 @@ who is bringing the children home at 18:15, and this puts that on one screen.
 
   Settings still writes the code and the secret out, with copy buttons, for a
   parent who cannot use a link.
+- **An admin, to keep the list honest.** The first parent to register is the
+  admin — whoever set the group up, without being told to claim anything — and
+  can remove a member from settings. Removing frees every future leg that
+  parent had claimed, because a family that has left still showing as driving
+  next Tuesday is worse than not removing them at all. Past rides are left
+  exactly as they were: a record of who drove, not a plan that can go wrong.
+
+  The admin also names the group, sets how many drivers a leg wants before it
+  counts as sorted, and keeps the group's list of places.
+
+  And they are told when somebody new joins — a line at the top of the board
+  naming them, which stays until the admin opens settings and sees the list.
+  Nobody else is told: for the rest of the group a new name is just a new name,
+  but the admin is the one who answers for the list being right. It is worked
+  out on the device from the board it already has, so it costs no column and no
+  request, and a second phone joining an existing member says nothing, because
+  no member arrived.
+
+  Removing is housekeeping rather than a lock. Everyone in a group shares one
+  secret, so a removed parent who kept it could register again under a new
+  name. To shut somebody out properly, change that group's secret and give the
+  new one to everybody else.
+- **The places the group goes, saved once.** A carpool visits the same four or
+  five venues all season, and typing one out every week is how a board ends up
+  with three spellings of one pitch and a parent at the wrong gate. The admin
+  writes them down in settings; everybody else gets them as buttons under the
+  *איפה* field and taps one. The field stays free text underneath — the week
+  the training moves somewhere else is exactly the week a closed list would be
+  in the way — and the saved names feed the title parser too, so a venue is
+  understood from a typed line before anyone has ever met there.
+- **One entry, however many devices.** A second phone registering under a name
+  the group already has is offered that member to continue as, so a laptop and
+  a phone stay one person — and so two parents of a household can share one
+  entry deliberately, by both using the name the board should show. Two parents
+  who genuinely share a name can say so and get their own. Joining an existing
+  member never overwrites it: the joining phone has never held that member's
+  colour or number, and writing its blank form over the record would take the
+  household's phone number off every ride they are down to drive.
+- **Android's back button closes the screen, not the app.** Settings, the
+  editor and the create-a-group screen each carry a history entry, so back
+  goes up one exactly as the arrow in the corner does. At the board it is the
+  phone's press again, which is what leaving an app should take.
 - Works offline on the last loaded board, and installs to a home screen on
   both Android and iOS.
 
