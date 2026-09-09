@@ -316,6 +316,13 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
   background:var(--c,var(--muted));
   color:#fff;
   border:0;
+  /* A spine down the leading edge — the right, on a right-to-left board.
+     Not a second colour but the same one darkened, so it reads as an edge of
+     the chip rather than a stripe stuck to it, and the chip still says one
+     colour from across a car park. A browser without color-mix drops the
+     line and keeps the plain filled chip, which is what it had before. */
+  border-inline-start:5px solid color-mix(in srgb, var(--c, #888) 58%, #000);
+  padding-inline-start:9px;
 }
 /* Full width inside its column, and in the leg's own colour, so the tap that
    puts you on the outward run never looks like the one that brings them home. */
@@ -885,7 +892,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 63;
+const APP_VERSION = 64;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
