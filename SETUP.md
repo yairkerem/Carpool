@@ -355,6 +355,14 @@ evening's notice rather than an appointment, which is all it needs to be. The
 `remindedOn` column is what stops a second send when the trigger fires twice
 inside one hour, which it is entitled to do.
 
+The notification carries two images, and they are not interchangeable. The
+**icon** is the app's own, in colour, shown in the notification itself. The
+**badge** is the small mark in the status bar, and Android tints it with the
+system colour and reads only its alpha channel — hand it a colour icon and
+you get a plain grey square. `badge-96.png` is therefore a stencil: the car
+cut out of its blue, cropped to fill the frame because it is drawn at about
+24px. iOS ignores the badge entirely.
+
 A subscription dies when a phone is reset or the app removed, and the push
 service then answers 404 or 410 for it forever. Those are cleared out of the
 sheet automatically; a 500 or a timeout is left alone, since it may well work

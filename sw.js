@@ -8,7 +8,7 @@
  * cross-origin POST, and the guard in fetch() below only ever handles
  * same-origin GETs.
  */
-const CACHE_VERSION = 'v56';
+const CACHE_VERSION = 'v57';
 const CACHE = 'carpool-shell-' + CACHE_VERSION;
 
 const SHELL = [
@@ -18,7 +18,8 @@ const SHELL = [
   './icon-car-192.png',
   './icon-car-512.png',
   './icon-car-maskable-192.png',
-  './icon-car-maskable-512.png'
+  './icon-car-maskable-512.png',
+  './badge-96.png'
 ];
 
 /* No skipWaiting() here on purpose. A new worker installs and then waits, so
@@ -103,7 +104,12 @@ self.addEventListener('push', event => {
   event.waitUntil(self.registration.showNotification(title, {
     body: data.body || 'יש עדכון בלוח ההסעות.',
     icon: './icon-car-192.png',
-    badge: './icon-car-192.png',
+    /* A badge is a stencil, not an icon: Android tints it with the system
+       colour and reads only its alpha channel, so the colour icon arrived
+       as a plain grey square in the status bar. This one is the car cut out
+       of its blue, cropped to fill the frame because it is drawn at about
+       24px. iOS ignores it entirely, which costs nothing. */
+    badge: './badge-96.png',
     lang: 'he',
     dir: 'rtl',
     /* Same tag replaces rather than stacks: two reminders for one ride, sent
