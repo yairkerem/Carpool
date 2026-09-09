@@ -294,7 +294,10 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
    board exists to answer, read at arm's length in a car park, while the same
    chip in settings or the header is a label on something you are already
    looking at. */
-.drow .chip{font-size:19px;padding:5px 13px;gap:7px}
+/* line-height rather than padding does most of the shortening: the text was
+   sitting in a 28px line box for a 19px letter, which is a paragraph's
+   spacing on something that is one word long. */
+.drow .chip{font-size:19px;line-height:1.3;padding:5px 13px;gap:7px}
 .drow .chip.dot::before{width:12px;height:12px}
 .drow .call{font-size:19px;padding:3px}
 
@@ -305,17 +308,14 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
    whose name it is without being the loudest thing on the card.
    inline-start, so in a right-to-left board the bar is on the right, where
    the eye starts. */
+/* The parent's colour IS the chip — filled, not hinted at with a bar down one
+   edge. A board is scanned for whose colour is on which leg before any name is
+   actually read, and a wash was too quiet to be found that way.
+   No border: on a solid fill it only muddies the edge. */
 .drow .chip.solid{
-  background:var(--card);
-  /* A wash of the parent's own colour, so a plate is distinct from whatever
-     it sits on — the green of a sorted leg or the plain white of an unsorted
-     one — and still reads as theirs. Declared twice: the flat card colour is
-     what an older browser gets, and it is perfectly fine. */
-  background:color-mix(in srgb, var(--c, #888) 12%, var(--card));
-  color:var(--ink);
-  border:1px solid var(--line);
-  border-inline-start:5px solid var(--c,var(--muted));
-  padding-inline-start:11px;
+  background:var(--c,var(--muted));
+  color:#fff;
+  border:0;
 }
 /* Full width inside its column, and in the leg's own colour, so the tap that
    puts you on the outward run never looks like the one that brings them home. */
@@ -885,7 +885,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 62;
+const APP_VERSION = 63;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
