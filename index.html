@@ -892,7 +892,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 65;
+const APP_VERSION = 66;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -3441,7 +3441,34 @@ function registerSW(){
   });
 }
 
-function offerUpdate(){ $('update-bar').hidden = false; }
+/* A new build is ready. If nobody is looking, take it now; otherwise offer it.
+ *
+ * Applying it reloads the page, which is why it is never done to somebody's
+ * face: they could be halfway through typing an event, or reading the board in
+ * a car park. Hidden, though, there is nothing to interrupt — so the update
+ * happens while the app is in a pocket and the next time it is opened it is
+ * simply the new one. That is what makes this automatic in practice: parents
+ * do not press update buttons.
+ *
+ * Only from the board, and only with no editor open: a hidden tab can still
+ * be holding a half-written event behind it. */
+function offerUpdate(){
+  if (document.visibilityState === 'hidden' &&
+      $('s-list').classList.contains('active') &&
+      !state.editing){
+    applyUpdate();
+    return;
+  }
+  $('update-bar').hidden = false;
+}
+
+/* Ask whether a new build exists. The browser only looks on a navigation, so
+ * an installed app that is never closed would go on serving the same version
+ * for weeks — which for a group app means parents on different ones. */
+function pollForUpdate(){
+  if (!swReg) return;
+  try { swReg.update(); } catch (err) { /* offline, and it will try again */ }
+}
 
 function applyUpdate(){
   if (swReg && swReg.waiting) swReg.waiting.postMessage({ type:'SKIP_WAITING' });
@@ -3681,11 +3708,19 @@ function idle(){
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && idle()) refresh(true);
+  /* Going away is the moment worth checking: an update found now is applied
+     silently, because there is nobody to interrupt. */
+  pollForUpdate();
 });
 window.addEventListener('online', () => { if (idle()) refresh(true); });
 setInterval(() => {
   if (document.visibilityState === 'visible' && idle()) refresh(true);
 }, 60000);
+
+/* Half-hourly, whether or not the app is on screen. The board is polled every
+   minute because it changes every time a parent taps; a build changes when
+   somebody deploys one, which is not that often. */
+setInterval(pollForUpdate, 30 * 60 * 1000);
 
 /* ---- boot ----------------------------------------------------- */
 /* A phone that has been using this app since before there were groups has its

@@ -151,6 +151,14 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   editor and the create-a-group screen each carry a history entry, so back
   goes up one exactly as the arrow in the corner does. At the board it is the
   phone's press again, which is what leaving an app should take.
+- **Updates itself while nobody is looking.** A new build installs in the
+  background and waits. If the app is on screen it offers itself as a bar,
+  because reloading a page somebody is typing an event into would throw the
+  event away; if the app is in a pocket, it is simply taken, and the next
+  time it opens it is the new one. Not while an editor is open behind a
+  hidden tab. It also asks every half hour rather than only on a page load,
+  or an installed app that is never closed would serve the same version for
+  weeks — which for a group app means parents on different ones.
 - Works offline on the last loaded board, and installs to a home screen on
   both Android and iOS.
 
