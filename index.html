@@ -114,10 +114,17 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 .switch-item.on{background:var(--brand-soft);color:var(--brand);font-weight:700}
 .switch-item:active{background:var(--line)}
 .bar-acts{display:flex;gap:4px;flex:none}
+/* Full-strength ink and a thickened stroke, not the muted grey these started
+   in. The back arrow and the gear are the two controls a parent reaches for
+   without reading, and a hairline glyph in grey is hard to find on a bright
+   screen — which is where this app is used. text-stroke as well as weight,
+   because → ⚙ ⟳ mostly come from a symbol face with no bold cut, so
+   font-weight alone leaves them exactly as thin as they were. */
 .iconbtn{
-  border:0;background:transparent;color:var(--muted);
+  border:0;background:transparent;color:var(--ink);
   width:40px;height:40px;border-radius:12px;cursor:pointer;
-  font-size:20px;line-height:1;display:grid;place-items:center;
+  font-size:21px;line-height:1;display:grid;place-items:center;
+  font-weight:700;-webkit-text-stroke:0.6px currentColor;
 }
 .iconbtn:active{background:var(--line)}
 .iconbtn.spinning{animation:spin .8s linear infinite}
@@ -193,7 +200,13 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 .col-head .txt{flex:1;min-width:0}
 .col-head h2{font-size:16px;overflow-wrap:anywhere}
 .col-acts{display:flex;flex:none;margin:-4px -6px 0 0}
-.col-acts .iconbtn{width:30px;height:30px;font-size:15px}
+/* The ones on an event card stay as they were. They sit beside the thing they
+   act on rather than being hunted for in a bar, and drawn at full strength
+   they would compete with the event's own name. */
+.col-acts .iconbtn{
+  width:30px;height:30px;font-size:15px;
+  color:var(--muted);font-weight:400;-webkit-text-stroke:0;
+}
 .col-when{font-size:12px;font-weight:700;color:var(--muted);margin-top:3px;
           display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .col-when .done{
@@ -820,7 +833,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 50;
+const APP_VERSION = 51;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
