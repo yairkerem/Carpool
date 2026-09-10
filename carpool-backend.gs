@@ -29,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 20;
+const BACKEND_VERSION = 21;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -1266,9 +1266,17 @@ function saveEvent(ev) {
     const sh = sheet('Events', EVENT_COLS);
     const existing = ev.id && eventById(ev.id, false);
 
+    /* A new event may arrive carrying its own id, made by the phone that is
+       creating it. That is what makes saving one safe to repeat: Apps Script
+       occasionally answers a request that worked with an error page instead
+       of its reply, and without this a retry would put the same training
+       session on the board twice. With it, the second attempt finds the first
+       one's row and writes over it. */
+    const own = /^[0-9a-f]{10}$/.test(String(ev.id || '')) ? String(ev.id) : '';
+
     const row = {
       _row: existing ? existing._row : 0,
-      id: existing ? existing.id : uid(),
+      id: existing ? existing.id : (own || uid()),
       title: String(ev.title).trim(),
       date: ev.date,
       time: clean(ev.time),

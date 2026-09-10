@@ -897,7 +897,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 72;
+const APP_VERSION = 73;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1575,6 +1575,14 @@ async function togglePush(){
     btn.disabled = false;
     paintPush();
   }
+}
+
+/* Ten hex characters, the shape the backend makes its own ids in, so a row
+ * created from a phone is indistinguishable from one it numbered itself. */
+function newId(){
+  const b = new Uint8Array(5);
+  crypto.getRandomValues(b);
+  return [...b].map(x => x.toString(16).padStart(2, '0')).join('');
 }
 
 /* The subscribe call wants the key as bytes, not the base64url string every
@@ -2712,7 +2720,12 @@ async function saveEvent(){
   }
 
   const base = {
-    id: state.editing ? state.editing.id : '',
+    /* A new event is given its id here rather than by the server. That is what
+       lets a save be sent twice safely: the second attempt carries the same id
+       and overwrites the first one's row instead of adding a second event.
+       Without it, a reply lost on the way back means the same training session
+       appears on the board twice. */
+    id: state.editing ? state.editing.id : newId(),
     title: title,
     date: date,
     time: time,
@@ -2730,8 +2743,22 @@ async function saveEvent(){
   try {
     for (let i = 0; i <= repeat; i++){
       const ev = Object.assign({}, base);
-      if (i > 0){ ev.id = ''; ev.date = shiftIso(base.date, 7 * i); }
-      const r = await api({ action:'save', event: ev }, 25000);
+      /* Each week of a repeat is its own event, so its own id. */
+      if (i > 0){ ev.id = newId(); ev.date = shiftIso(base.date, 7 * i); }
+
+      let r = null;
+      for (let attempt = 1; attempt <= 2 && !r; attempt++){
+        try {
+          r = await api({ action:'save', event: ev }, 25000);
+        } catch (err) {
+          /* Two ways Apps Script loses an answer: it hangs, or it hands back
+             an error page instead of the reply. Both leave the phone not
+             knowing whether the event was written, and both are worth one more
+             go now that going again cannot duplicate anything. */
+          if (attempt === 2) throw err;
+          say('edit-msg', 'השרת לא ענה. מנסה שוב…', 'ok');
+        }
+      }
       if (!r.ok){
         if (rejected(r.error)) return;
         say('edit-msg', 'השמירה נכשלה: ' + (r.error || 'שגיאה'), 'err');
