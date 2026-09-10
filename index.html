@@ -897,7 +897,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 76;
+const APP_VERSION = 77;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -929,7 +929,34 @@ const VAPID_PUBLIC =
  * in two or three seconds, and waiting half a minute to discover otherwise
  * helps nobody. The second waits much longer, because by then the question is
  * no longer "is it quick" but "will it come at all". */
-const TRY_MS = [20000, 35000];
+const TRY_MS = [15000, 25000, 35000];
+
+/* How long the failures may cost before giving up, in total. Attempts are
+ * budgeted by how they fail rather than counted: an error page comes back in
+ * two seconds and is nearly free to try again, while a hang costs the whole
+ * timeout. Right now Apps Script does both — roughly one request in three
+ * never completes — so a third go is worth having when the first two were
+ * cheap, and not worth having when they were not. Nobody should wait a minute
+ * and a half to be told no. */
+const RETRY_BUDGET_MS = 25000;
+
+/* Sends a request that is safe to repeat, and repeats it while that is still
+ * cheap. Every caller is idempotent by construction: an event carries an id
+ * the phone made, the group settings set absolute values, and claiming a leg
+ * you are already on does nothing. */
+async function sendRetrying(payload, onRetry){
+  let spent = 0;
+  for (let attempt = 0; ; attempt++){
+    const began = Date.now();
+    try {
+      return await api(payload, TRY_MS[Math.min(attempt, TRY_MS.length - 1)]);
+    } catch (err) {
+      spent += Date.now() - began;
+      if (attempt >= TRY_MS.length - 1 || spent > RETRY_BUDGET_MS) throw err;
+      if (onRetry) onRetry();
+    }
+  }
+}
 
 const DEFAULT_DRIVERS_WANTED = 2;
 const MAX_DRIVERS_WANTED = 6;
@@ -2219,17 +2246,9 @@ async function legAction(btn, ev, leg, action){
        nothing and leaving one you are not on removes nothing. The request
        says what the answer should be, not how to change it, so repeating it
        cannot go wrong. */
-    let r = null;
-    for (let attempt = 1; attempt <= 2 && !r; attempt++){
-      try {
-        r = await api({
-          action: action, id: ev.id, leg: leg, parentId: state.me.id
-        }, TRY_MS[attempt - 1]);
-      } catch (err) {
-        if (attempt === 2) throw err;
-        banner('השרת לא ענה. מנסה שוב…');
-      }
-    }
+    const r = await sendRetrying(
+      { action: action, id: ev.id, leg: leg, parentId: state.me.id },
+      () => banner('השרת לא ענה. מנסה שוב…'));
 
     if (!r.ok){
       ev[driverKey] = before;
@@ -2774,19 +2793,12 @@ async function saveEvent(){
       /* Each week of a repeat is its own event, so its own id. */
       if (i > 0){ ev.id = newId(); ev.date = shiftIso(base.date, 7 * i); }
 
-      let r = null;
-      for (let attempt = 1; attempt <= 2 && !r; attempt++){
-        try {
-          r = await api({ action:'save', event: ev }, TRY_MS[attempt - 1]);
-        } catch (err) {
-          /* Two ways Apps Script loses an answer: it hangs, or it hands back
-             an error page instead of the reply. Both leave the phone not
-             knowing whether the event was written, and both are worth one more
-             go now that going again cannot duplicate anything. */
-          if (attempt === 2) throw err;
-          say('edit-msg', 'השרת לא ענה. מנסה שוב…', 'ok');
-        }
-      }
+      /* Two ways Apps Script loses an answer: it hangs, or it hands back an
+         error page instead of the reply. Both leave the phone not knowing
+         whether the event was written, and both are worth going again now
+         that going again cannot duplicate anything. */
+      const r = await sendRetrying({ action:'save', event: ev },
+        () => say('edit-msg', 'השרת לא ענה. מנסה שוב…', 'ok'));
       if (!r.ok){
         if (rejected(r.error)) return;
         say('edit-msg', 'השמירה נכשלה: ' + (r.error || 'שגיאה'), 'err');
@@ -3401,23 +3413,16 @@ async function pushGroupSettings(){
    *
    * Twice, not more: a third go would keep somebody staring at "שומר…" for
    * over a minute, and by then the answer is that it is not working now. */
-  let r = null;
-  let waited = 0;
-  for (let attempt = 1; attempt <= 2 && !r; attempt++){
-    const began = Date.now();
-    try {
-      r = await api(req, TRY_MS[attempt - 1]);
-    } catch (err) {
-      waited += Math.round((Date.now() - began) / 1000);
-      if (attempt === 2){
-        /* Timing out is not the same as being refused, and the difference is
-           the whole of what to do about it. Say which, and how long it took
-           over both tries. */
-        say('group-msg', netMessage(err) + ' (' + waited + ' שניות, שני ניסיונות)', 'err');
-        return null;
-      }
-      say('group-msg', 'השרת לא ענה. מנסה שוב…', 'ok');
-    }
+  let r;
+  const began = Date.now();
+  try {
+    r = await sendRetrying(req, () => say('group-msg', 'השרת לא ענה. מנסה שוב…', 'ok'));
+  } catch (err) {
+    /* Timing out is not the same as being refused, and the difference is the
+       whole of what to do about it. Say which, and how long it all took. */
+    say('group-msg', netMessage(err) +
+        ' (' + Math.round((Date.now() - began) / 1000) + ' שניות)', 'err');
+    return null;
   }
   if (!r.ok){ groupSaveFailed(r); return null; }
   /* The backend times its own execution. A save that takes fifteen seconds is
