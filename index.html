@@ -897,7 +897,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 74;
+const APP_VERSION = 75;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -916,6 +916,20 @@ const SAVE_MINE = 'שמירת הפרטים שלי';
  * the private half, which lives only in the worker's secrets. */
 const VAPID_PUBLIC =
   'BIcdkb6DgUggjq0r-mXLDF8Z_ZByamhiuGzbjy-RlxyWkdkwhN3Z2mC5g15u4R6h35RxXxSyIuUxvWFltZuFdcc';
+
+/* How long to wait for the backend, per attempt.
+ *
+ * Not arbitrary. Measured against the live deployment, the script itself
+ * finishes in well under a second — 593ms, 707ms — while the whole round trip
+ * takes nine to thirteen. The gap is Google's own web app plumbing, the
+ * POST → 302 → googleusercontent hop every Apps Script deployment goes
+ * through, and it is far more variable than the code it fronts.
+ *
+ * So the first attempt stays short: when things are healthy the answer comes
+ * in two or three seconds, and waiting half a minute to discover otherwise
+ * helps nobody. The second waits much longer, because by then the question is
+ * no longer "is it quick" but "will it come at all". */
+const TRY_MS = [20000, 35000];
 
 const DEFAULT_DRIVERS_WANTED = 2;
 const MAX_DRIVERS_WANTED = 6;
@@ -1413,7 +1427,8 @@ async function refresh(quiet){
   $('b-refresh').classList.add('spinning');
   const epoch = credEpoch;
   try {
-    const r = await api({ action:'state' }, 25000);
+    const r = await api({ action:'state' }, 30000)   /* no retry here: a stale board is a
+         readable board, and the next poll is a minute away */;
 
     /* The board was asked for with credentials that have since been replaced
        — most likely because this request is what sent the parent to the setup
@@ -2209,7 +2224,7 @@ async function legAction(btn, ev, leg, action){
       try {
         r = await api({
           action: action, id: ev.id, leg: leg, parentId: state.me.id
-        }, 20000);
+        }, TRY_MS[attempt - 1]);
       } catch (err) {
         if (attempt === 2) throw err;
         banner('השרת לא ענה. מנסה שוב…');
@@ -2762,7 +2777,7 @@ async function saveEvent(){
       let r = null;
       for (let attempt = 1; attempt <= 2 && !r; attempt++){
         try {
-          r = await api({ action:'save', event: ev }, 25000);
+          r = await api({ action:'save', event: ev }, TRY_MS[attempt - 1]);
         } catch (err) {
           /* Two ways Apps Script loses an answer: it hangs, or it hands back
              an error page instead of the reply. Both leave the phone not
@@ -3391,7 +3406,7 @@ async function pushGroupSettings(){
   for (let attempt = 1; attempt <= 2 && !r; attempt++){
     const began = Date.now();
     try {
-      r = await api(req, 25000);
+      r = await api(req, TRY_MS[attempt - 1]);
     } catch (err) {
       waited += Math.round((Date.now() - began) / 1000);
       if (attempt === 2){
