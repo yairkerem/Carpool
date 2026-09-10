@@ -897,7 +897,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 73;
+const APP_VERSION = 74;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -2199,9 +2199,22 @@ async function legAction(btn, ev, leg, action){
   render();
 
   try {
-    const r = await api({
-      action: action, id: ev.id, leg: leg, parentId: state.me.id
-    }, 20000);
+    /* Tried twice, like saving an event and saving the group's settings, and
+       safe for the same reason: claiming a leg you are already on adds
+       nothing and leaving one you are not on removes nothing. The request
+       says what the answer should be, not how to change it, so repeating it
+       cannot go wrong. */
+    let r = null;
+    for (let attempt = 1; attempt <= 2 && !r; attempt++){
+      try {
+        r = await api({
+          action: action, id: ev.id, leg: leg, parentId: state.me.id
+        }, 20000);
+      } catch (err) {
+        if (attempt === 2) throw err;
+        banner('השרת לא ענה. מנסה שוב…');
+      }
+    }
 
     if (!r.ok){
       ev[driverKey] = before;

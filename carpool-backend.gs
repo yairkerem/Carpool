@@ -29,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 21;
+const BACKEND_VERSION = 22;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -114,12 +114,16 @@ function allGroups() {
  * special one would mean a special case in the request path forever, and a
  * name every deployment shares is a poor thing to have to keep unique. Run
  * testSetup afterwards to read the code off, and give it to the parents. */
-function migrate() {
+function migrate(known) {
   const sh = sheet('Groups', GROUP_COLS);
-  if (readAll(sh, GROUP_COLS).length) return;
+  /* The caller may already have the group list in hand — doPost does, and
+     reading the same sheet twice on every single request is a round trip to
+     Google's servers spent on nothing. Returns true when it actually made a
+     group, so the caller knows its copy is now out of date. */
+  if ((known || readAll(sh, GROUP_COLS)).length) return false;
 
   const secret = PROPS.getProperty('SHARED_SECRET');
-  if (!secret) return;                       // nothing has been set up yet
+  if (!secret) return false;                 // nothing has been set up yet
 
   const id = groupCode();
   writeRow(sh, GROUP_COLS, {
@@ -134,6 +138,7 @@ function migrate() {
   });
 
   stampRows('', id);
+  return true;
 }
 
 /* Move every event and parent from one code to another. Used by migrate to
@@ -750,7 +755,11 @@ function doPost(e) {
   try {
     const req = JSON.parse(e.postData.contents);
 
-    migrate();
+    /* Read once and used for both the migration check and the lookup below.
+       It used to be read twice on every request, which is a round trip to
+       Google for an answer already in hand. */
+    let groups = allGroups();
+    if (migrate(groups)) groups = allGroups();   // it made one; the list moved on
 
     /* Creating a group is the only thing that happens outside a group, and it
        carries the host's secret rather than any group's. */
@@ -761,7 +770,7 @@ function doPost(e) {
        has. An app old enough to send nothing gets the same answer as a wrong
        code, and its owner re-enters the code once. */
     const wanted = String(req.group || '').trim().toLowerCase();
-    CURRENT = wanted ? (allGroups().filter(g => g.id === wanted)[0] || null) : null;
+    CURRENT = wanted ? (groups.filter(g => g.id === wanted)[0] || null) : null;
 
     /* One answer for a wrong code and a wrong secret, deliberately. Telling a
        stranger which of the two they got right turns the group list into
