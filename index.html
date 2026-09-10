@@ -712,6 +712,9 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
   <div class="sect" id="about-sect">
     <h3>גרסה</h3>
     <p class="hint mono" id="ver-line"></p>
+    <!-- Left in on purpose while we decide whether Apps Script is good
+         enough. Two weeks of impressions is not evidence. -->
+    <p class="hint" id="health-line" hidden></p>
     <div class="rowbtns" style="margin-top:10px">
       <button type="button" id="b-check-update">
         <span id="update-spin" class="spin" hidden></span>
@@ -897,7 +900,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 77;
+const APP_VERSION = 78;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -949,13 +952,54 @@ async function sendRetrying(payload, onRetry){
   for (let attempt = 0; ; attempt++){
     const began = Date.now();
     try {
-      return await api(payload, TRY_MS[Math.min(attempt, TRY_MS.length - 1)]);
+      const r = await api(payload, TRY_MS[Math.min(attempt, TRY_MS.length - 1)]);
+      noteHealth(attempt ? 'recovered' : 'clean', r && r.ms);
+      return r;
     } catch (err) {
       spent += Date.now() - began;
-      if (attempt >= TRY_MS.length - 1 || spent > RETRY_BUDGET_MS) throw err;
+      if (attempt >= TRY_MS.length - 1 || spent > RETRY_BUDGET_MS){
+        noteHealth('failed');
+        throw err;
+      }
       if (onRetry) onRetry();
     }
   }
+}
+
+/* ---- how well the backend is actually behaving ------------------
+ * Kept because we are deciding whether to move off Apps Script, and two weeks
+ * of impressions is not evidence. This counts what happened to real requests
+ * on a real phone: how many went through first time, how many needed another
+ * go, how many gave up, and the slowest the server admitted to.
+ *
+ * Only the four things a parent does — saving an event, saving the group's
+ * settings, claiming a leg, joining — because those are the ones that matter
+ * when they fail. Background refreshes are not counted; a stale board is not
+ * a failure anybody notices.
+ *
+ * Cheap enough to leave in: four integers in localStorage, written on a path
+ * that has just been over the network. */
+function health(){
+  let h = null;
+  try { h = JSON.parse(localStorage.getItem(LS.health) || 'null'); }
+  catch (e) { h = null; }
+  return h || { since: todayIso(), clean: 0, recovered: 0, failed: 0, worstMs: 0 };
+}
+
+function noteHealth(what, serverMs){
+  const h = health();
+  h[what] = (h[what] || 0) + 1;
+  if (serverMs > h.worstMs) h.worstMs = serverMs;
+  try { localStorage.setItem(LS.health, JSON.stringify(h)); } catch (e) { /* private mode */ }
+}
+
+function healthLine(){
+  const h = health();
+  const total = h.clean + h.recovered + h.failed;
+  if (!total) return '';
+  return 'מאז ' + ddmm(h.since) + ': ' + total + ' פעולות · ' +
+         h.recovered + ' נשלחו שוב · ' + h.failed + ' נכשלו' +
+         (h.worstMs ? ' · שרת עד ' + (h.worstMs / 1000).toFixed(1) + 'ש' : '');
 }
 
 const DEFAULT_DRIVERS_WANTED = 2;
@@ -969,7 +1013,7 @@ const COLORS = ['#2563eb','#0d9488','#16a34a','#ca8a04','#ea580c',
                 '#dc2626','#db2777','#7c3aed','#0891b2','#57534e'];
 
 const LS = {
-  list:'cp.list', active:'cp.active',
+  list:'cp.list', active:'cp.active', health:'cp.health',
   /* What one group looked like before there could be two. Read once, folded
      into the list, and then left alone — a phone that downgrades to an older
      build should still find the group it had. */
@@ -2962,6 +3006,8 @@ function openSetup(message){
      "the sheet says I am the admin but the app disagrees" is a real thing
      that can happen, and this line is what makes it visible instead of
      baffling. It is the id in the Parents tab, to compare against. */
+  $('health-line').textContent = healthLine();
+  $('health-line').hidden = !healthLine();
   $('ver-line').textContent = 'app v' + APP_VERSION +
     (state.backendVersion ? ' · backend v' + state.backendVersion : '') +
     (state.me ? '\n' + state.me.id + (iAmAdmin() ? ' · admin' : '') : '');

@@ -8,7 +8,7 @@
  * cross-origin POST, and the guard in fetch() below only ever handles
  * same-origin GETs.
  */
-const CACHE_VERSION = 'v77';
+const CACHE_VERSION = 'v78';
 const CACHE = 'carpool-shell-' + CACHE_VERSION;
 
 const SHELL = [

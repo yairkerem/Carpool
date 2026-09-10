@@ -24,6 +24,31 @@ not fix it, and "most attempts fail" on adding an event is past hiding.
 A Worker answers these requests in tens of milliseconds, with no redirect hop
 to lose.
 
+## On hold — measuring first (2026-09-10)
+
+Not started. The redeploy that preceded this fixed the *median* round trip and
+not the failures: immediately afterwards one board load still timed out at 20s
+and another took 10.3s. So "redeploy when it degrades" may buy less than it
+appears to, and one bad afternoon is a thin basis for a rebuild that costs the
+spreadsheet, the fifteen-minute setup story, and a file you own.
+
+Two weeks of evidence first. The app counts what happens to the four things a
+parent actually does — saving an event, saving group settings, claiming a leg,
+joining — and shows the tally in settings under the version:
+
+> מאז 10/09: 7 פעולות · 1 נשלחו שוב · 1 נכשלו · שרת עד 6.2ש
+
+Read as: how many went through first time, how many needed another go, how many
+gave up, and the slowest the server admitted to. Background refreshes are not
+counted; a stale board is not a failure anyone notices.
+
+**What decides it.** Failures that reach a parent *through* three retries mean
+Apps Script is not good enough and this plan goes ahead. A tally of a hundred
+actions with a handful of retries and no failures means the retries are doing
+their job and the rebuild is not worth what it costs.
+
+The rest of this document is the plan for if it goes ahead.
+
 ## The one rule that makes this safe
 
 **The Worker speaks exactly the protocol the app already speaks.** Same request
