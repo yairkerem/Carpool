@@ -8,7 +8,7 @@
  * cross-origin POST, and the guard in fetch() below only ever handles
  * same-origin GETs.
  */
-const CACHE_VERSION = 'v75';
+const CACHE_VERSION = 'v76';
 const CACHE = 'carpool-shell-' + CACHE_VERSION;
 
 const SHELL = [
@@ -81,7 +81,16 @@ self.addEventListener('fetch', event => {
   /* Navigations: serve the cached shell so the app opens instantly and still
      shows a sane screen with no network. */
   if (req.mode === 'navigate') {
-    event.respondWith(caches.match('./index.html').then(hit => hit || fetch(req)));
+    /* The app, and only the app. This used to answer every navigation on the
+       origin with the app's shell, which is fine while the app is the only
+       page here — and wrong the moment it is not. guide.html, sitting beside
+       it and sent to parents, opened the board instead, on every phone that
+       had ever cached the app. A second page is not a route of this one. */
+    const home = new URL('./', self.location).pathname;
+    const isApp = url.pathname === home || url.pathname === home + 'index.html';
+    if (isApp) {
+      event.respondWith(caches.match('./index.html').then(hit => hit || fetch(req)));
+    }
     return;
   }
 
