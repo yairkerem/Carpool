@@ -778,6 +778,17 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     <input id="e-date" type="text" dir="ltr" inputmode="numeric" pattern="[0-9/.]*"
            maxlength="10" autocomplete="off" placeholder="15/09">
     <p class="hint" id="date-read"></p>
+    <!-- A day named as a day, landing on tomorrow, is the one reading this
+         parser cannot settle: somebody who meant tomorrow would probably have
+         said מחר, and somebody who meant next week said exactly this. Asked
+         rather than guessed, the same way the calendar app asks. -->
+    <div id="day-ask" class="sect ask" hidden style="margin:10px 0 0;padding:13px 14px">
+      <p class="hint" id="day-ask-text" style="margin:0 0 9px;color:var(--ink)"></p>
+      <div class="picks">
+        <button type="button" class="pick" id="b-day-soon"></button>
+        <button type="button" class="pick" id="b-day-next"></button>
+      </div>
+    </div>
   </div>
 
   <!-- Not type="time". That control draws its own clock from the browser's UI
@@ -900,7 +911,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 78;
+const APP_VERSION = 79;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1300,6 +1311,34 @@ function madeDate(y, mo, d){
 
 /* What the date field holds, as ISO. */
 function dateValue(){ return readDate($('e-date').value); }
+
+/* A bare weekday that came out as tomorrow. Both readings are ordinary, so
+ * the screen offers them side by side rather than picking one and hoping —
+ * and it only appears when the guess is still standing, never over a date the
+ * parent has since typed themselves. */
+function askAboutDay(day){
+  const box = $('day-ask');
+  const live = day && day.bare && !auto.touched.day &&
+               day.iso === shiftIso(todayIso(), 1);
+  box.hidden = !live;
+  if (!live) return;
+
+  const nextWeek = shiftIso(day.iso, 7);
+  $('day-ask-text').textContent = 'אמרתם "' + day.label + '" — מחר. לזה התכוונתם?';
+  $('b-day-soon').textContent = 'מחר · ' + ddmm(day.iso);
+  $('b-day-next').textContent = 'בשבוע הבא · ' + ddmm(nextWeek);
+
+  const choose = iso => {
+    $('e-date').value = dateText(iso);
+    /* Chosen by hand, so the title stops moving it — the same as typing it. */
+    auto.touched.day = true;
+    box.hidden = true;
+    echoDate();
+    watchTitle();
+  };
+  $('b-day-soon').onclick = () => choose(day.iso);
+  $('b-day-next').onclick = () => choose(nextWeek);
+}
 
 /* Echoes the weekday under the field. Losing the calendar means losing the
  * one thing it was good at — showing that the 15th is a Tuesday — so the
@@ -2180,7 +2219,7 @@ function eventCol(ev){
 function duplicateEvent(ev){
   openEdit(null);
   $('e-title').value = ev.title;
-  $('e-date').value = dateText(nextWeekday(fromIso(ev.date).getDay()));
+  $('e-date').value = dateText(nextWeekday(fromIso(ev.date).getDay(), true));
   $('e-time').value = ev.time || '';
   $('e-back').value = ev.backTime || '';
   $('e-place').value = ev.place || '';
@@ -2385,9 +2424,20 @@ const RELATIVE = { 'היום':0, 'מחר':1, 'מחרתיים':2 };
 
 /* The next occurrence counts today: somebody adding "אימון יום שני" on a
  * Monday morning means this evening, not a week from now. */
-function nextWeekday(dow){
+/* The next time that weekday comes round, and never today.
+ *
+ * Somebody who means today says היום. Naming the day it already is — "אימון
+ * יום רביעי" on a Wednesday — is how people say next Wednesday, and reading it
+ * as this afternoon puts a training session on a board hours after it should
+ * have been claimed. An event is set forward, never backward or onto the day
+ * it is being typed. Same rule the calendar app follows, for the same reason.
+ *
+ * `includeToday` is for duplicating a finished event, where the old date's
+ * weekday is being counted forward from and today is a legitimate answer. */
+function nextWeekday(dow, includeToday){
   const t = todayIso();
-  return shiftIso(t, (dow - fromIso(t).getDay() + 7) % 7);
+  const ahead = (dow - fromIso(t).getDay() + 7) % 7;
+  return shiftIso(t, (ahead === 0 && !includeToday) ? 7 : ahead);
 }
 
 function findDay(text){
@@ -2400,7 +2450,8 @@ function findDay(text){
                start: t.start, end: t.end };
     }
     if (SHABBAT.indexOf(t.w) >= 0){
-      return { iso: nextWeekday(6), label: 'שבת', start: t.start, end: t.end };
+      return { iso: nextWeekday(6), label: 'שבת', bare: true,
+               start: t.start, end: t.end };
     }
     if (YOM.indexOf(t.w) >= 0 && tk[i + 1] &&
         Object.prototype.hasOwnProperty.call(DOW_WORDS, tk[i + 1].w)){
@@ -2408,6 +2459,9 @@ function findDay(text){
       return {
         iso: nextWeekday(dow),
         label: dow === 6 ? 'שבת' : 'יום ' + HE_DAYS[dow],
+        /* Named as a day rather than as מחר or a date — the one kind that can
+           be meant either way when it lands on tomorrow. */
+        bare: true,
         start: t.start, end: tk[i + 1].end
       };
     }
@@ -2721,6 +2775,7 @@ function watchTitle(){
   /* The field carries the written form, so that is what the guess writes into
      it — the label it dedupes on is unchanged either way. */
   applyAuto('day', 'e-date', p.day ? dateText(p.day.iso) : '', p.day ? p.day.label : '');
+  askAboutDay(p.day);
   applyAuto('time', 'e-time', p.time);
   applyAuto('back', 'e-back', p.back);
   applyAuto('place', 'e-place', p.place);
@@ -2777,6 +2832,7 @@ function openEdit(ev){
   $('delete-row').hidden = !ev;
   say('edit-msg', '');
   say('title-read', '');
+  $('day-ask').hidden = true;
   echoDate();
   paintPlacePicks();
 

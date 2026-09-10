@@ -51,6 +51,14 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   as a time only when its minutes fall on a multiple of five, which is how
   people arrange to be collected and is not how years fall.
 
+  A day named as a day is **never today**. Somebody who means today says
+  `היום`; saying `יום רביעי` on a Wednesday is how people say next
+  Wednesday, and reading it as this afternoon puts a training session on the
+  board hours after it should have been claimed. When it lands on *tomorrow*
+  both readings are ordinary — you might have said `מחר` — so the screen asks,
+  offering the two dates side by side, rather than picking one and hoping.
+  The same rule and the same question as the calendar app.
+
   Deliberately cautious, because a wrong guess is worse than none. A bare
   `ראשון` or `שני` is far more often "first" or "second" than a weekday, so
   only `יום` + name counts. `8.9.26` is a date; `טורניר 2026` is a year;
