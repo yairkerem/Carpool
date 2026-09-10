@@ -194,6 +194,20 @@ permissions — send mail as you, run while you are away — so it is a separate
 optional file, [`carpool-reminder.gs`](carpool-reminder.gs), and those are
 asked for at the moment you opt in.
 
+## The guide for new parents
+
+[**yairkerem.github.io/carpool-guide**](https://yairkerem.github.io/carpool-guide/)
+— three steps to get in, how to read the board, how to put yourself down to
+drive. In Hebrew, for a phone, written to be read once.
+
+It is hosted from [its own repository](https://github.com/yairkerem/carpool-guide)
+rather than beside the app, and that is not tidiness. The manifest claims this
+whole path as the app's scope, so a page sitting next to it can be intercepted
+twice over: an installed Android app captures links under its own scope, and
+the service worker answers navigations within it. Either one turns a link to
+the guide into the board — on exactly the phones most likely to forward it.
+Outside the scope, neither can reach it.
+
 ## Running a group
 
 See [SETUP.md](SETUP.md). One parent sets up the backend, once, and sends the
