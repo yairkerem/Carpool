@@ -835,8 +835,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
   <div class="actions">
     <button id="b-save" class="btn">
-      <span id="save-spin" class="spin" hidden></span>
-      <span id="save-label">שמירה</span>
+      <span>שמירה</span>
     </button>
   </div>
   <div class="actions" id="delete-row" hidden>
@@ -911,7 +910,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 80;
+const APP_VERSION = 81;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -2885,49 +2884,83 @@ async function saveEvent(){
   const repeat = state.editing ? 0 :
     Math.max(0, Math.min(20, Number($('e-repeat').value) || 0));
 
-  busy('b-save', 'save-spin', 'save-label', true, 'שומר…');
-  say('edit-msg', '');
-  try {
-    for (let i = 0; i <= repeat; i++){
-      const ev = Object.assign({}, base);
-      /* Each week of a repeat is its own event, so its own id. */
-      if (i > 0){ ev.id = newId(); ev.date = shiftIso(base.date, 7 * i); }
+  /* Every week of the repeat worked out before anything is sent, so the board
+     can show the whole result at once. Each week is its own event and so its
+     own id. */
+  const planned = [];
+  for (let i = 0; i <= repeat; i++){
+    const ev = Object.assign({}, base);
+    if (i > 0){ ev.id = newId(); ev.date = shiftIso(base.date, 7 * i); }
+    planned.push(ev);
+  }
 
+  /* On the board first, then told to the server — the same shape as claiming a
+     leg and deleting one. Waiting for the round trip meant staring at the
+     editor for three seconds on a good day and eighteen on a bad one, for an
+     event that was already decided. Put back in full if the server refuses. */
+  const before = state.events.slice();
+  const editing = state.editing;
+  for (const ev of planned) showEventNow(ev);
+  /* The board should come back looking at what was just saved, not wherever it
+     happened to be — a new event, or one whose date changed, will not be where
+     the old scroll position points. */
+  focusEvent = planned[0].id;
+  saveBoard();
+  show('list');
+  render();
+
+  const said = repeat ? 'נשמרו ' + planned.length + ' אירועים.'
+                      : (editing ? 'האירוע עודכן.' : 'האירוע נשמר.');
+  banner(said);
+
+  /* A repeat that gives up halfway has really written the weeks it got
+     through, so those stay on the board and only the rest come off. Putting
+     all of them back would tell the parent nothing was saved and then hand
+     them three of them again on the next refresh. */
+  let written = 0;
+  const putBack = why => {
+    state.events = before;
+    for (let i = 0; i < written; i++) showEventNow(planned[i]);
+    focusEvent = null;
+    saveBoard();
+    render();
+    banner(why);
+  };
+
+  try {
+    for (const ev of planned){
       /* Two ways Apps Script loses an answer: it hangs, or it hands back an
          error page instead of the reply. Both leave the phone not knowing
          whether the event was written, and both are worth going again now
          that going again cannot duplicate anything. */
       const r = await sendRetrying({ action:'save', event: ev },
-        () => say('edit-msg', 'השרת לא ענה. מנסה שוב…', 'ok'));
+        () => banner('השרת לא ענה. מנסה שוב…'));
       if (!r.ok){
         if (rejected(r.error)) return;
-        say('edit-msg', 'השמירה נכשלה: ' + (r.error || 'שגיאה'), 'err');
+        putBack('השמירה נכשלה: ' + (r.error || 'שגיאה'));
         return;
       }
-      /* The board should come back looking at what was just saved, not at
-         wherever it happened to be — and a new event, or one whose date
-         changed, will not be where the old scroll position points. */
-      if (i === 0) focusEvent = ev.id || r.id || null;
+      written++;
     }
-    /* Back to the board *before* reloading it. refresh() renders, and a render
-       that happens while this screen is still hidden cannot scroll anything —
-       scrollIntoView on a display:none element does nothing at all, so the
-       event we mean to reveal would be consumed and quietly missed. */
-    show('list');
-    await refresh(true);
-    /* After the refresh, which clears the banner on its way past. The board
-       does show the event, but a card appearing among other cards is not the
-       same as being told the save worked — and on a repeat it is the only way
-       to know how many were made. */
-    banner(repeat
-      ? 'נשמרו ' + (repeat + 1) + ' אירועים.'
-      : (state.editing ? 'האירוע עודכן.' : 'האירוע נשמר.'));
+    /* Not awaited: the board already shows what was saved. Said again once it
+       lands, because a successful refresh clears the banner on its way past. */
+    refresh(true).then(() => banner(said), () => banner(said));
   } catch (err) {
-    say('edit-msg', netMessage(err), 'err');
-  } finally {
-    busy('b-save', 'save-spin', 'save-label', false, 'שמירה');
+    putBack(netMessage(err) + ' האירוע לא נשמר.');
   }
 }
+
+/* An event onto the local board, in the shape the backend sends them back in.
+ * Drivers and riders are kept when one is being edited: the save carries the
+ * event's own fields and never the claims against it, and dropping them here
+ * would make every edit look briefly like everybody had stepped off. */
+function showEventNow(ev){
+  const was = state.events.filter(e => e.id === ev.id)[0];
+  const row = Object.assign(
+    { toDriver: [], backDriver: [], toRiders: [], backRiders: [] }, was || {}, ev);
+  state.events = state.events.filter(e => e.id !== ev.id).concat([row]);
+}
+
 
 /* Off the board first, then told to the server — the same shape as claiming a
  * leg, and for the same reason. Deleting used to wait for the whole round trip
