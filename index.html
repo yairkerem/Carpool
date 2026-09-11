@@ -964,7 +964,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 87;
+const APP_VERSION = 88;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1896,18 +1896,40 @@ async function paintPush(){
  * So every group this device belongs to is told, each with its own code,
  * secret and member id. Failures are collected rather than thrown: a group
  * that refuses should be named, not stop the others from being told. */
+/* Why a group would not take it, in words that say what to do about it.
+ * "not found" is the backend's own phrase for the one thing a parent can
+ * actually fix, and on its own it reads like a fault in the app. */
+function pushWhy(error){
+  const e = String(error || '').toLowerCase();
+  if (e.indexOf('not found') >= 0) return 'המכשיר לא רשום שם';
+  if (e.indexOf('removed') >= 0) return 'הוסרתם מהקבוצה';
+  if (e.indexOf('unauthorized') >= 0) return 'הקוד או הסיסמה נדחו';
+  if (e.indexOf('busy') >= 0) return 'השרת היה עסוק. נסו שוב';
+  return error || 'שגיאה';
+}
+
 async function pushEverywhere(sub){
   const trouble = [];
   for (const m of state.list){
     if (!m.backend || !m.secret || !m.groupId || !m.me) continue;
     try {
       const r = await api({ action:'push', sub: sub }, 20000, null, m);
-      if (!r.ok) trouble.push(groupLabel(m) + ': ' + (r.error || 'שגיאה'));
+      if (!r.ok) trouble.push({ label: groupLabel(m), why: pushWhy(r.error), fixable: !r.ok &&
+        /not found|removed|unauthorized/i.test(String(r.error || '')) });
     } catch (err) {
-      trouble.push(groupLabel(m) + ': ' + netMessage(err));
+      trouble.push({ label: groupLabel(m), why: netMessage(err), fixable: false });
     }
   }
   return trouble;
+}
+
+/* "ready, except in X: this device is not registered there" — plus, when that
+ * is something the parent can put right, where to go and what to press. */
+function troubleText(trouble){
+  const said = trouble.map(t => 'בקבוצה ' + t.label + ': ' + t.why).join(' · ');
+  if (!trouble.some(t => t.fixable)) return said + '.';
+  return said + '. ' + (trouble.length > 1 ? 'עברו לכל אחת מהן' : 'עברו לקבוצה הזאת') +
+         ' בהגדרות ולחצו התחברות, ואז הפעילו התראות שוב.';
 }
 
 async function togglePush(){
@@ -1920,7 +1942,7 @@ async function togglePush(){
       await existing.unsubscribe();
       const trouble = await pushEverywhere(null);
       say('push-msg', trouble.length
-        ? 'ההתראות כובו במכשיר הזה. ' + trouble.join(' · ')
+        ? 'ההתראות כובו במכשיר הזה. ' + troubleText(trouble)
         : 'ההתראות כובו במכשיר הזה.', trouble.length ? 'err' : 'ok');
     } else {
       const allowed = await Notification.requestPermission();
@@ -1942,11 +1964,11 @@ async function togglePush(){
          one group's problem into no notifications at all. */
       if (trouble.length >= state.list.length){
         await sub.unsubscribe();       // do not leave one no backend got
-        say('push-msg', 'ההרשמה נכשלה: ' + trouble.join(' · '), 'err');
+        say('push-msg', 'ההרשמה נכשלה. ' + troubleText(trouble), 'err');
         return;
       }
       say('push-msg', trouble.length
-        ? 'מוכן, אבל לא בקבוצה ' + trouble.join(' · בקבוצה ')
+        ? 'מוכן, אבל לא ' + troubleText(trouble)
         : 'מוכן. תקבלו תזכורת בערב שלפני נסיעה שלכם.' +
           (state.list.length > 1 ? ' ההגדרה חלה על כל הקבוצות במכשיר הזה.' : ''),
         trouble.length ? 'err' : 'ok');
