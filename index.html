@@ -964,7 +964,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 85;
+const APP_VERSION = 86;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1541,10 +1541,17 @@ function askSave(rest){
 /* ---- backend -------------------------------------------------- */
 /* Apps Script never answers a CORS preflight, so the content type has to stay
    inside the safelist. The body is JSON regardless — only the header differs. */
-async function api(payload, timeoutMs, url){
+async function api(payload, timeoutMs, url, as){
+  /* `as` is a membership other than the one on screen, used by the one thing
+     that is not about a single group: a push subscription belongs to the
+     device, so it has to be told to every group the device is in — each with
+     that group's own code, secret and member id. */
+  const who = as || { backend: state.backend, secret: state.secret,
+                      groupId: state.groupId, me: state.me };
+
   /* `url` is passed only while setup is proving an address that is not saved
      yet, so a failed probe leaves nothing behind. */
-  const target = url || state.backend;
+  const target = url || who.backend;
   if (!target) throw new Error('no-backend');
 
   const ctrl = new AbortController();
@@ -1557,8 +1564,8 @@ async function api(payload, timeoutMs, url){
          several — and `me` rides along so the backend can refuse writes from
          somebody that group has removed, whatever they are trying to do. */
       body: JSON.stringify(Object.assign(
-        { secret: state.secret, group: state.groupId,
-          me: state.me ? state.me.id : '' }, payload)),
+        { secret: who.secret, group: who.groupId,
+          me: who.me ? who.me.id : '' }, payload)),
       redirect:'follow',
       signal: ctrl.signal
     });
@@ -1769,8 +1776,18 @@ async function refresh(quiet){
     /* '' when there is nobody new, so this clears the line — but only if the
        line is still the one that was up when this request set off. Anything
        said since was said about something that happened later. */
+    /* The phone is carrying a member id this group has never heard of — a row
+       deleted from the sheet, or a group re-made under the same code. Reading
+       the board still works, which is why it goes unnoticed: what fails is
+       everything that is done *as* somebody, one action at a time, each with
+       its own unhelpful "not found". Said once, plainly, with the way out. */
+    const stray = state.me && !mine
+      ? 'המכשיר הזה לא רשום בקבוצה הזאת. פתחו הגדרות ולחצו התחברות כדי להירשם שוב.'
+      : '';
+
     const news = arrivalsText();
-    if (news || bannerStamp === stamp) banner(news);
+    if (stray) banner(stray);
+    else if (news || bannerStamp === stamp) banner(news);
     render();
   } catch (err) {
     state.offline = true;
@@ -1854,6 +1871,29 @@ async function paintPush(){
     : 'תזכורת בערב שלפני כל נסיעה שאתם משובצים אליה. ההגדרה היא למכשיר הזה בלבד.';
 }
 
+/* A subscription belongs to the browser, not to a group: one device has one,
+ * whichever board happens to be on screen. It was only ever written to the
+ * group being looked at, so a parent in two carpools turned notifications on
+ * in the second and silently took them off the first — the first group's row
+ * kept an endpoint that had just been unsubscribed, and nothing said so.
+ *
+ * So every group this device belongs to is told, each with its own code,
+ * secret and member id. Failures are collected rather than thrown: a group
+ * that refuses should be named, not stop the others from being told. */
+async function pushEverywhere(sub){
+  const trouble = [];
+  for (const m of state.list){
+    if (!m.backend || !m.secret || !m.groupId || !m.me) continue;
+    try {
+      const r = await api({ action:'push', sub: sub }, 20000, null, m);
+      if (!r.ok) trouble.push(groupLabel(m) + ': ' + (r.error || 'שגיאה'));
+    } catch (err) {
+      trouble.push(groupLabel(m) + ': ' + netMessage(err));
+    }
+  }
+  return trouble;
+}
+
 async function togglePush(){
   const btn = $('b-push');
   say('push-msg', '');
@@ -1862,8 +1902,10 @@ async function togglePush(){
     const existing = await currentSub();
     if (existing){
       await existing.unsubscribe();
-      await api({ action:'push', sub: null }, 20000);
-      say('push-msg', 'ההתראות כובו במכשיר הזה.', 'ok');
+      const trouble = await pushEverywhere(null);
+      say('push-msg', trouble.length
+        ? 'ההתראות כובו במכשיר הזה. ' + trouble.join(' · ')
+        : 'ההתראות כובו במכשיר הזה.', trouble.length ? 'err' : 'ok');
     } else {
       const allowed = await Notification.requestPermission();
       if (allowed !== 'granted'){
@@ -1876,13 +1918,22 @@ async function togglePush(){
         userVisibleOnly: true,
         applicationServerKey: urlB64ToBytes(VAPID_PUBLIC)
       });
-      const r = await api({ action:'push', sub: sub.toJSON() }, 20000);
-      if (!r.ok){
-        await sub.unsubscribe();       // do not leave one the backend never got
-        say('push-msg', 'ההרשמה נכשלה: ' + (r.error || 'שגיאה'), 'err');
+      const trouble = await pushEverywhere(sub.toJSON());
+
+      /* Only if not one group took it. A subscription that reached two out of
+         three is worth keeping: those two will send reminders, and the third
+         is named below so it can be looked into. Throwing it away would turn
+         one group's problem into no notifications at all. */
+      if (trouble.length >= state.list.length){
+        await sub.unsubscribe();       // do not leave one no backend got
+        say('push-msg', 'ההרשמה נכשלה: ' + trouble.join(' · '), 'err');
         return;
       }
-      say('push-msg', 'מוכן. תקבלו תזכורת בערב שלפני נסיעה שלכם.', 'ok');
+      say('push-msg', trouble.length
+        ? 'מוכן, אבל לא בקבוצה ' + trouble.join(' · בקבוצה ')
+        : 'מוכן. תקבלו תזכורת בערב שלפני נסיעה שלכם.' +
+          (state.list.length > 1 ? ' ההגדרה חלה על כל הקבוצות במכשיר הזה.' : ''),
+        trouble.length ? 'err' : 'ok');
     }
   } catch (err) {
     say('push-msg', 'לא הצלחנו: ' + (err && err.message ? err.message : 'שגיאה'), 'err');
