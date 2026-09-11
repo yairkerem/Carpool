@@ -421,6 +421,8 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 }
 .pick[aria-pressed="true"]{background:var(--brand-soft);color:var(--brand);border-color:var(--brand);font-weight:700}
 .pick:active{background:var(--line)}
+/* The two that delete something, told apart from the one that does not. */
+.pick.danger-pick{color:var(--danger);border-color:var(--danger);font-weight:700}
 
 /* The same list in settings, where each row can be taken out again. */
 .places-edit{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
@@ -850,10 +852,9 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     <p class="hint auto" id="until-read"></p>
   </div>
 
-  <!-- Only for an event that is one of a repeat. The choice is the whole
-       point of keeping the weeks together: a time that changed changed for
-       the rest of the term, and a season that was called off is not twelve
-       separate deletions. -->
+  <!-- Only for an event that is one of a repeat, and only about saving: a
+       time that changed usually changed for the rest of the term. Deleting
+       asks its own question, at the moment the button is pressed. -->
   <div class="field sect ask" id="series-ask" hidden style="margin-bottom:16px;padding:13px 14px">
     <p class="hint" id="series-text" style="margin:0 0 9px;color:var(--ink)"></p>
     <div class="picks">
@@ -871,6 +872,18 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
   </div>
   <div class="actions" id="delete-row" hidden>
     <button id="b-delete" class="btn danger">מחיקת האירוע</button>
+  </div>
+
+  <!-- Asked when delete is pressed, not set beforehand. A choice made before
+       the button is a choice nobody knows they are making; asked here, with
+       the count in the button, it is the confirmation as well. -->
+  <div class="sect ask" id="delete-ask" hidden style="margin:0 0 18px;padding:13px 14px">
+    <p class="hint" id="del-ask-text" style="margin:0 0 9px;color:var(--ink)"></p>
+    <div class="picks">
+      <button type="button" class="pick danger-pick" id="b-del-one">רק האירוע הזה</button>
+      <button type="button" class="pick danger-pick" id="b-del-all"></button>
+      <button type="button" class="pick" id="b-del-cancel">ביטול</button>
+    </div>
   </div>
 </section>
 
@@ -941,7 +954,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 82;
+const APP_VERSION = 83;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1474,7 +1487,7 @@ function paintSeriesAsk(){
   if (!rest){ editScope = 'one'; return; }
 
   $('series-text').textContent = 'אירוע חוזר, עם עוד ' +
-    (rest === 1 ? 'אחד' : rest) + ' אחריו. שמירה ומחיקה יחולו על:';
+    (rest === 1 ? 'אחד' : rest) + ' אחריו. השמירה תחול על:';
   $('b-scope-after').textContent = rest === 1 ? 'וגם הבא אחריו' : 'וגם ' + rest + ' הבאים';
   $('b-scope-one').setAttribute('aria-pressed', String(editScope === 'one'));
   $('b-scope-after').setAttribute('aria-pressed', String(editScope === 'after'));
@@ -3027,6 +3040,7 @@ function openEdit(ev){
   $('e-until').value = '';
   $('repeat-field').hidden = !!ev;      // repeating is a thing you do when creating
   $('delete-row').hidden = !ev;
+  $('delete-ask').hidden = true;       // never a stale question about a past event
   editScope = 'one';
   paintSeriesAsk();
   say('edit-msg', '');
@@ -3202,26 +3216,51 @@ function showEventNow(ev){
  *
  * The board is put back if the server refuses, which is the same bargain the
  * claim button has been making all along. */
-async function deleteEvent(){
+/* Every week of this event's repeat, itself included. Deleting is offered
+ * against the whole thing rather than "and the ones after", because a repeat
+ * that is being deleted is usually one that should never have been made. */
+function seriesAll(ev){
+  if (!ev || !ev.series) return [];
+  return state.events.filter(e => e.series === ev.series);
+}
+
+/* The delete button on an event that repeats asks which it means, here, at the
+ * moment it is pressed. It used to be decided by a control further up the
+ * screen, which is a decision taken before anybody knows they are taking one.
+ *
+ * The answer is also the confirmation: each button names exactly what it
+ * removes, and how many, which is more than the browser's own dialog said. */
+function askDelete(){
+  const ev = state.editing;
+  if (!ev) return;
+
+  const all = seriesAll(ev);
+  if (all.length < 2){
+    if (confirm('למחוק את "' + ev.title + '"? זה ימחק אותו לכל ההורים.')) deleteEvent('one');
+    return;
+  }
+
+  $('del-ask-text').textContent = 'האירוע חוזר כל שבוע. מה למחוק? המחיקה היא לכל ההורים.';
+  $('b-del-all').textContent = 'את כל הסדרה · ' + all.length + ' אירועים';
+  $('delete-ask').hidden = false;
+  $('delete-ask').scrollIntoView({ block:'nearest' });
+}
+
+async function deleteEvent(scope){
   if (!state.editing) return;
   const doomed = state.editing;
-  /* The same choice the save button obeys, and the count is in the question:
-     "delete this?" and "delete these twelve?" deserve different answers. */
-  const after = editScope === 'after' ? laterInSeries(doomed) : [];
-  const ask = after.length
-    ? 'למחוק את "' + doomed.title + '" ועוד ' + after.length +
-      ' אירועים אחריו? זה ימחק אותם לכל ההורים.'
-    : 'למחוק את "' + doomed.title + '"? זה ימחק אותו לכל ההורים.';
-  if (!confirm(ask)) return;
+  $('delete-ask').hidden = true;
 
-  const gone = [doomed].concat(after).map(e => e.id);
+  const gone = (scope === 'all' ? seriesAll(doomed) : [doomed]).map(e => e.id);
+  const many = gone.length > 1;
+  const said = many ? gone.length + ' אירועים נמחקו.' : '"' + doomed.title + '" נמחק.';
+
   const before = state.events.slice();
   state.events = state.events.filter(e => gone.indexOf(e.id) < 0);
   saveBoard();
   show('list');
   render();
-  banner(after.length ? gone.length + ' אירועים נמחקו.'
-                      : '"' + doomed.title + '" נמחק.');
+  banner(said);
 
   const putBack = why => {
     state.events = before;
@@ -3234,7 +3273,7 @@ async function deleteEvent(){
     /* Retried like the rest: removing by id a second time is removing nothing
        the second time, so repeating it cannot do harm. */
     const r = await sendRetrying({ action:'remove', id: doomed.id,
-                                   scope: after.length ? 'after' : 'one' });
+                                   scope: many ? 'all' : 'one' });
     if (!r.ok){
       if (rejected(r.error)) return;
       putBack('המחיקה נכשלה: ' + (r.error || 'שגיאה'));
@@ -3245,8 +3284,6 @@ async function deleteEvent(){
        because a successful refresh clears the banner on its way past and would
        otherwise wipe the one thing naming what was deleted — the card is gone,
        so there is nothing left on screen to point at. */
-    const said = after.length ? gone.length + ' אירועים נמחקו.'
-                              : '"' + doomed.title + '" נמחק.';
     refresh(true).then(() => banner(said), () => banner(said));
   } catch (err) {
     putBack(netMessage(err) + ' המחיקה לא נשמרה.');
@@ -4194,7 +4231,10 @@ $('b-update').onclick = applyUpdate;
 
 $('b-edit-back').onclick = () => { show('list'); render(); };
 $('b-save').onclick = saveEvent;
-$('b-delete').onclick = deleteEvent;
+$('b-delete').onclick = askDelete;
+$('b-del-one').onclick = () => deleteEvent('one');
+$('b-del-all').onclick = () => deleteEvent('all');
+$('b-del-cancel').onclick = () => { $('delete-ask').hidden = true; };
 
 $('e-title').addEventListener('input', watchTitle);
 $('e-title').addEventListener('blur', tidyTitle);

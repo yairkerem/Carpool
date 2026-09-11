@@ -29,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 23;
+const BACKEND_VERSION = 24;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -1446,14 +1446,19 @@ function removeEvent(id, scope) {
     if (!found) return { ok: false, error: 'not found' };
 
     const stamp = new Date().toISOString();
-    /* "And the ones after it" takes the rest of the term off the board in one
-       request. The weeks already gone are left alone: they happened, and who
-       drove them is the only history this thing keeps. */
-    const doomed = [found].concat(
-      scope === 'after' && found.series
-        ? events().filter(e => e.series === found.series && e.id !== found.id &&
-                               e.deleted !== '1' && e.date > found.date)
-        : []);
+    /* A whole repeat in one request. 'all' is every week of it, which is what
+       the app asks for now; 'after' is this one and the weeks that follow it,
+       kept because a phone that has not updated still sends it.
+     *
+     * Marked, never erased, like every other delete here — the rows stay in
+     * the sheet, so who drove whom in a term that was called off is still
+     * there for whoever can open it. */
+    const kin = found.series && (scope === 'all' || scope === 'after')
+      ? events().filter(e => e.series === found.series && e.id !== found.id &&
+                             e.deleted !== '1' &&
+                             (scope === 'all' || e.date > found.date))
+      : [];
+    const doomed = [found].concat(kin);
 
     doomed.forEach(e => { e.deleted = '1'; e.updatedAt = stamp; });
     writeRows(sh, EVENT_COLS, doomed);
