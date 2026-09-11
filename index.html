@@ -734,6 +734,11 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     <!-- Left in on purpose while we decide whether Apps Script is good
          enough. Two weeks of impressions is not evidence. -->
     <p class="hint" id="health-line" hidden></p>
+    <!-- The last few writes, and what each one actually asked for. A parent
+         who thinks a save did something other than what they chose has
+         nothing to point at otherwise, and neither has anybody trying to
+         work out what happened afterwards. -->
+    <p class="hint mono" id="trail-line" hidden></p>
     <div class="rowbtns" style="margin-top:10px">
       <button type="button" id="b-check-update">
         <span id="update-spin" class="spin" hidden></span>
@@ -959,7 +964,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 84;
+const APP_VERSION = 85;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1013,11 +1018,13 @@ async function sendRetrying(payload, onRetry){
     try {
       const r = await api(payload, TRY_MS[Math.min(attempt, TRY_MS.length - 1)]);
       noteHealth(attempt ? 'recovered' : 'clean', r && r.ms);
+      noteTrail(payload, r && r.ok ? '✓' : '✗');
       return r;
     } catch (err) {
       spent += Date.now() - began;
       if (attempt >= TRY_MS.length - 1 || spent > RETRY_BUDGET_MS){
         noteHealth('failed');
+        noteTrail(payload, '✗');
         throw err;
       }
       if (onRetry) onRetry();
@@ -1052,6 +1059,40 @@ function noteHealth(what, serverMs){
   try { localStorage.setItem(LS.health, JSON.stringify(h)); } catch (e) { /* private mode */ }
 }
 
+/* ---- what was actually sent -------------------------------------
+ * The last few writes, each with the scope it carried. "I chose this event
+ * only and the whole series changed" is impossible to look into afterwards
+ * without it: the message on the board has gone, and the sheet says what
+ * happened but not what was asked for.
+ *
+ * On the phone, because that is where the question is asked, and short
+ * because it is a footnote in settings, not a log. */
+const TRAIL_MAX = 6;
+
+function trail(){
+  try { return JSON.parse(localStorage.getItem(LS.trail) || '[]'); }
+  catch (e) { return []; }
+}
+
+function noteTrail(payload, how){
+  if (!payload || payload.action === 'state' || payload.action === 'ping') return;
+  const what = payload.action +
+    (payload.scope ? '·' + payload.scope : '') +
+    (payload.events ? '×' + payload.events.length : '');
+  const list = [{ w: what, h: how, t: Date.now() }].concat(trail()).slice(0, TRAIL_MAX);
+  try { localStorage.setItem(LS.trail, JSON.stringify(list)); } catch (e) { /* private mode */ }
+}
+
+function trailLine(){
+  const list = trail();
+  if (!list.length) return '';
+  return list.map(e => {
+    const d = new Date(e.t);
+    return String(d.getHours()).padStart(2,'0') + ':' +
+           String(d.getMinutes()).padStart(2,'0') + ' ' + e.w + ' ' + e.h;
+  }).join('\n');
+}
+
 function healthLine(){
   const h = health();
   const total = h.clean + h.recovered + h.failed;
@@ -1076,7 +1117,9 @@ const LS = {
   /* What one group looked like before there could be two. Read once, folded
      into the list, and then left alone — a phone that downgrades to an older
      build should still find the group it had. */
-  backend:'cp.backend', secret:'cp.secret', me:'cp.me', board:'cp.board'
+  backend:'cp.backend', secret:'cp.secret', me:'cp.me', board:'cp.board',
+  /* The last few writes and the scope each carried — settings shows them. */
+  trail:'cp.trail'
 };
 
 /* A membership: one group, on this device.
@@ -3151,8 +3194,12 @@ async function saveEvent(scope){
   show('list');
   render();
 
+  /* The single case says what it did *not* do as well. A parent who chose one
+     week out of a repeat has no way of checking the other twelve from the
+     board, and "האירוע עודכן" is equally true of both answers. */
   const said = planned.length > 1 ? 'נשמרו ' + planned.length + ' אירועים.'
              : after.length ? 'האירוע ועוד ' + after.length + ' עודכנו.'
+             : rest.length ? 'האירוע הזה עודכן. שאר הסדרה לא השתנתה.'
              : (editing ? 'האירוע עודכן.' : 'האירוע נשמר.');
   banner(said);
 
@@ -3261,7 +3308,11 @@ async function deleteEvent(scope){
 
   const gone = (scope === 'all' ? seriesAll(doomed) : [doomed]).map(e => e.id);
   const many = gone.length > 1;
-  const said = many ? gone.length + ' אירועים נמחקו.' : '"' + doomed.title + '" נמחק.';
+  /* Same as saving: one week out of a repeat says so, because the board
+     cannot be checked for the ones that are still there. */
+  const said = many ? gone.length + ' אירועים נמחקו.'
+             : doomed.series ? '"' + doomed.title + '" נמחק. שאר הסדרה נשארה.'
+             : '"' + doomed.title + '" נמחק.';
 
   const before = state.events.slice();
   state.events = state.events.filter(e => gone.indexOf(e.id) < 0);
@@ -3414,6 +3465,8 @@ function openSetup(message){
      baffling. It is the id in the Parents tab, to compare against. */
   $('health-line').textContent = healthLine();
   $('health-line').hidden = !healthLine();
+  $('trail-line').textContent = trailLine();
+  $('trail-line').hidden = !trailLine();
   $('ver-line').textContent = 'app v' + APP_VERSION +
     (state.backendVersion ? ' · backend v' + state.backendVersion : '') +
     (state.me ? '\n' + state.me.id + (iAmAdmin() ? ' · admin' : '') : '');
