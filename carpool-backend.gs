@@ -29,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 22;
+const BACKEND_VERSION = 23;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -39,7 +39,12 @@ const TZ = 'Asia/Jerusalem';
 const EVENT_COLS = [
   'id', 'title', 'date', 'time', 'place', 'backTime', 'note',
   'toDriver', 'backDriver', 'toRiders', 'backRiders',
-  'createdBy', 'updatedAt', 'deleted', 'group'
+  'createdBy', 'updatedAt', 'deleted', 'group',
+  /* Every week of one repeating event carries the same series id, made by the
+     phone that created them. It is what lets "this one and the ones after it"
+     mean anything: the weeks are still separate events, each with its own
+     drivers, and this is the only thing that says they were once one decision. */
+  'series'
 ];
 
 /* `admin` and `removed` are appended rather than slotted in where they read
@@ -82,7 +87,7 @@ let CURRENT = null;
 let STARTED = 0;
 
 /* Actions that change the board, and so are closed to a removed parent. */
-const WRITES = ['me', 'save', 'remove', 'claim', 'release', 'ride', 'kick',
+const WRITES = ['me', 'save', 'series', 'remove', 'claim', 'release', 'ride', 'kick',
                 'drivers', 'rename', 'places', 'push', 'remindat', 'joined',
                 'group'];
 
@@ -792,8 +797,9 @@ function doPost(e) {
       case 'state':   return json(state());
       case 'me':     return json(saveParent(req.parent));
       case 'joined': return json(announceJoin(req.me));
-      case 'save':    return json(saveEvent(req.event));
-      case 'remove':  return json(removeEvent(req.id));
+      case 'save':    return json(saveEvent(req.event, req.scope));
+      case 'series':  return json(saveSeries(req.events));
+      case 'remove':  return json(removeEvent(req.id, req.scope));
       case 'claim':   return json(claim(req.id, req.leg, req.parentId));
       case 'release': return json(release(req.id, req.leg, req.parentId));
       case 'ride':    return json(setRider(req.id, req.leg, req.parentId, req.riding));
@@ -904,6 +910,32 @@ function writeRow(sh, cols, obj) {
   return row;
 }
 
+/* Several rows at once, which a repeating event is always about: twelve weeks
+ * written one call at a time is twelve round trips to the spreadsheet inside a
+ * request that has twenty-five seconds to live. Rows made in one go sit next
+ * to each other, so this almost always turns into a single setValues; runs
+ * that are not contiguous fall back to one call per run rather than per row. */
+function writeRows(sh, cols, list) {
+  if (!list.length) return;
+  const line = obj => cols.map(c => obj[c] === undefined || obj[c] === null ? '' : String(obj[c]));
+  const rows = list.slice().sort((a, b) => a._row - b._row);
+
+  /* A sheet is created with a fixed number of rows and setValues will not
+     write past the last of them. One event at a time never noticed; a term of
+     them, written in one go, is exactly what walks off the end. */
+  const needed = rows[rows.length - 1]._row - sh.getMaxRows();
+  if (needed > 0) sh.insertRowsAfter(sh.getMaxRows(), needed + 20);
+
+  let run = [rows[0]];
+  const flush = () => sh.getRange(run[0]._row, 1, run.length, cols.length)
+                        .setValues(run.map(line));
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i]._row === run[run.length - 1]._row + 1) run.push(rows[i]);
+    else { flush(); run = [rows[i]]; }
+  }
+  flush();
+}
+
 /* Two parents tapping "I'll drive" on the same leg in the same second is the
  * one race this app really has, and it is not hypothetical — a reminder goes
  * out and everybody opens the app at once. Every write takes the lock, and
@@ -989,7 +1021,8 @@ function state() {
       toRiders: parseList(e.toRiders),
       backRiders: parseList(e.backRiders),
       createdBy: e.createdBy,
-      updatedAt: e.updatedAt
+      updatedAt: e.updatedAt,
+      series: e.series || ''
     }))
     .sort((a, b) => (a.date + (a.time || '99:99')).localeCompare(b.date + (b.time || '99:99')));
 
@@ -1267,7 +1300,7 @@ function kickParent(targetId, byId) {
  * NOT taken from this payload: those move through claim/release/ride, so that
  * someone editing the time on a slow train cannot silently undo a claim made
  * while their screen was stale. */
-function saveEvent(ev) {
+function saveEvent(ev, scope) {
   if (!ev || !String(ev.title || '').trim()) return { ok: false, error: 'title required' };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ev.date || ''))) return { ok: false, error: 'bad date' };
 
@@ -1281,7 +1314,7 @@ function saveEvent(ev) {
        of its reply, and without this a retry would put the same training
        session on the board twice. With it, the second attempt finds the first
        one's row and writes over it. */
-    const own = /^[0-9a-f]{10}$/.test(String(ev.id || '')) ? String(ev.id) : '';
+    const own = hexId(ev.id);
 
     const row = {
       _row: existing ? existing._row : 0,
@@ -1299,10 +1332,103 @@ function saveEvent(ev) {
       createdBy: existing ? existing.createdBy : String(ev.createdBy || ''),
       updatedAt: new Date().toISOString(),
       deleted: '',
-      group: CURRENT.id
+      group: CURRENT.id,
+      /* An event never joins or leaves a series by being edited. It is set
+         when the weeks are created and read from the row from then on. */
+      series: existing ? existing.series : hexId(ev.series)
     };
     writeRow(sh, EVENT_COLS, row);
-    return { ok: true, id: row.id };
+
+    /* "This one and the ones after it". The weeks that follow take the same
+       details — never the claims, which belong to whoever made them — and
+       move by however far this one moved, so a training that shifts to
+       Thursday shifts the rest of the term with it. */
+    const rest = scope === 'after' && existing && row.series
+      ? applyToRest(sh, row, existing.date) : 0;
+
+    return { ok: true, id: row.id, rest: rest };
+  });
+}
+
+/* Ten hex characters or nothing, the same shape and the same reasoning as an
+ * event id: made by the phone, so a save that is sent twice cannot end up
+ * with two series. */
+function hexId(s) {
+  return /^[0-9a-f]{10}$/.test(String(s || '')) ? String(s) : '';
+}
+
+function applyToRest(sh, row, wasDate) {
+  const shift = daysBetween(wasDate, row.date);
+  const rest = events().filter(e =>
+    e.series === row.series && e.id !== row.id && e.deleted !== '1' && e.date > wasDate);
+  if (!rest.length) return 0;
+
+  const stamp = new Date().toISOString();
+  rest.forEach(e => {
+    e.title = row.title;
+    e.time = row.time;
+    e.backTime = row.backTime;
+    e.place = row.place;
+    e.note = row.note;
+    if (shift) e.date = shiftDays(e.date, shift);
+    e.updatedAt = stamp;
+  });
+  writeRows(sh, EVENT_COLS, rest);
+  return rest.length;
+}
+
+function daysBetween(a, b) {
+  const at = Date.UTC(+a.slice(0, 4), +a.slice(5, 7) - 1, +a.slice(8, 10));
+  const bt = Date.UTC(+b.slice(0, 4), +b.slice(5, 7) - 1, +b.slice(8, 10));
+  return Math.round((bt - at) / 86400000);
+}
+
+/* Every week of a repeat in one request. Sent one at a time, a twelve-week
+ * training was twelve chances for this backend to lose an answer, and a parent
+ * watching three of the twelve appear. The ids come from the phone, so sending
+ * the same list twice writes the same rows twice rather than making a second
+ * term's worth of events. */
+function saveSeries(list) {
+  if (!Array.isArray(list) || !list.length) return { ok: false, error: 'no events' };
+  if (list.length > 40) return { ok: false, error: 'too many' };
+
+  for (const ev of list) {
+    if (!ev || !String(ev.title || '').trim()) return { ok: false, error: 'title required' };
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ev.date || ''))) return { ok: false, error: 'bad date' };
+  }
+
+  return withLock(function () {
+    const sh = sheet('Events', EVENT_COLS);
+    const have = events();
+    const stamp = new Date().toISOString();
+    let next = sh.getLastRow() + 1;
+    const rows = [];
+
+    for (const ev of list) {
+      const existing = have.filter(e => e.id === ev.id)[0];
+      rows.push({
+        _row: existing ? existing._row : next++,
+        id: existing ? existing.id : (hexId(ev.id) || uid()),
+        title: String(ev.title).trim(),
+        date: ev.date,
+        time: clean(ev.time),
+        place: String(ev.place || '').trim(),
+        backTime: clean(ev.backTime),
+        note: String(ev.note || '').trim(),
+        toDriver: existing ? existing.toDriver : '[]',
+        backDriver: existing ? existing.backDriver : '[]',
+        toRiders: existing ? existing.toRiders : '[]',
+        backRiders: existing ? existing.backRiders : '[]',
+        createdBy: existing ? existing.createdBy : String(ev.createdBy || ''),
+        updatedAt: stamp,
+        deleted: '',
+        group: CURRENT.id,
+        series: existing ? existing.series : hexId(ev.series)
+      });
+    }
+
+    writeRows(sh, EVENT_COLS, rows);
+    return { ok: true, n: rows.length };
   });
 }
 
@@ -1313,15 +1439,25 @@ function clean(t) {
 
 /* Marked, not erased. Someone deleting the wrong event on a phone should be
  * recoverable by whoever can open the sheet. */
-function removeEvent(id) {
+function removeEvent(id, scope) {
   return withLock(function () {
     const sh = sheet('Events', EVENT_COLS);
     const found = eventById(id, false);
     if (!found) return { ok: false, error: 'not found' };
-    found.deleted = '1';
-    found.updatedAt = new Date().toISOString();
-    writeRow(sh, EVENT_COLS, found);
-    return { ok: true };
+
+    const stamp = new Date().toISOString();
+    /* "And the ones after it" takes the rest of the term off the board in one
+       request. The weeks already gone are left alone: they happened, and who
+       drove them is the only history this thing keeps. */
+    const doomed = [found].concat(
+      scope === 'after' && found.series
+        ? events().filter(e => e.series === found.series && e.id !== found.id &&
+                               e.deleted !== '1' && e.date > found.date)
+        : []);
+
+    doomed.forEach(e => { e.deleted = '1'; e.updatedAt = stamp; });
+    writeRows(sh, EVENT_COLS, doomed);
+    return { ok: true, n: doomed.length };
   });
 }
 

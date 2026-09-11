@@ -12,7 +12,13 @@ who is bringing the children home at 18:15, and this puts that on one screen.
 ## What it does
 
 - **Events, added by hand.** Title, date, time, place, return time, a note.
-  Optionally repeated weekly, for a term's worth of training in one go.
+  Optionally repeated weekly until a date you give — a term's worth of training
+  in one go, and one request rather than one per week.
+
+  The weeks stay related. Each is its own event with its own drivers, but they
+  share a series id, so editing or deleting one asks whether you mean just that
+  week or the rest of the term with it. A time that changed changed for all of
+  them, and a season called off is not twelve separate deletions.
 
   The date and the two times are plain text taking the same shorthand as the
   title — `16`, `1600` and `16:00` are all four o'clock; `15/09`, `15.9` and
@@ -69,6 +75,12 @@ who is bringing the children home at 18:15, and this puts that on one screen.
 - **A column per event, running along the page.** The soonest is on the right
   and later ones off to the left — the page is RTL, so time runs the way the
   reader does. Each column names the event and the day, and holds its two legs.
+  One of a weekly repeat says so, so four of the same training reads as one
+  arrangement rather than as somebody having added it four times.
+- **This week and next, and no further.** A repeat that runs to the end of term
+  is twenty cards of something nobody has to think about yet, sitting between
+  the parent and the reason they opened the app. The rest wait behind a column
+  at the far end that says how many they are and shows them on one tap.
 - **Two legs per event, always shown, never confusable.** *הלוך* and *חזור* get
   their own colour, their own icon and their own word: mixing them up is the
   mistake that strands a child, so no one signal carries it alone. A leg with

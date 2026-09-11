@@ -210,6 +210,21 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
   font-weight:700;font-size:11px;padding:1px 7px;border-radius:999px;
   background:var(--line);color:var(--muted);
 }
+.col-when .repeats{
+  font-weight:700;font-size:11px;padding:1px 7px;border-radius:999px;
+  background:var(--brand-soft);color:var(--brand);
+}
+
+/* The far end of the board: what is being kept back, and the way to see it.
+   A column rather than a button below, because the board scrolls sideways and
+   anything not in that row is in a place nobody looks. */
+.col.more{
+  flex:0 0 clamp(160px, 46vw, 200px);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;text-align:center;background:transparent;box-shadow:none;
+  border:2px dashed var(--line);
+}
+.col.more p{font-size:13px;color:var(--muted);margin:0;padding:0 10px}
 /* Grey, not hidden: a finished event is kept so next week's can be copied out
    of it. Desaturating rather than just fading keeps the text readable while
    draining every parent colour out of the card, which is what makes the live
@@ -825,10 +840,26 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     <textarea id="e-note" dir="auto" placeholder="מה להביא, איפה בדיוק להוריד…"></textarea>
   </div>
 
+  <!-- An end date, not a count. A parent knows when the season finishes and
+       does not know that it is nineteen weeks away; asking for the number was
+       asking them to do the arithmetic and then trust it. -->
   <div class="field" id="repeat-field">
-    <label for="e-repeat">לחזור על האירוע כל שבוע</label>
-    <input id="e-repeat" type="number" min="0" max="20" step="1" value="0" inputmode="numeric">
-    <p class="hint">0 = פעם אחת. אחרת נוצרים עוד כך וכך אירועים, שבוע אחרי שבוע.</p>
+    <label for="e-until">לחזור כל שבוע עד</label>
+    <input id="e-until" type="text" dir="ltr" inputmode="numeric" pattern="[0-9/]*"
+           maxlength="10" autocomplete="off" placeholder="ריק = אירוע אחד">
+    <p class="hint auto" id="until-read"></p>
+  </div>
+
+  <!-- Only for an event that is one of a repeat. The choice is the whole
+       point of keeping the weeks together: a time that changed changed for
+       the rest of the term, and a season that was called off is not twelve
+       separate deletions. -->
+  <div class="field sect ask" id="series-ask" hidden style="margin-bottom:16px;padding:13px 14px">
+    <p class="hint" id="series-text" style="margin:0 0 9px;color:var(--ink)"></p>
+    <div class="picks">
+      <button type="button" class="pick" id="b-scope-one">רק האירוע הזה</button>
+      <button type="button" class="pick" id="b-scope-after">וגם הבאים אחריו</button>
+    </div>
   </div>
 
   <div id="edit-msg" class="msg" hidden></div>
@@ -910,7 +941,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 81;
+const APP_VERSION = 82;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1215,6 +1246,14 @@ function shiftIso(s, n){
   return iso(d);
 }
 
+/* Whole days from one date to another, counted in UTC so that a clock change
+ * in between cannot turn seven days into six and three quarters. */
+function daysBetween(a, b){
+  const at = Date.UTC(+a.slice(0,4), +a.slice(5,7) - 1, +a.slice(8,10));
+  const bt = Date.UTC(+b.slice(0,4), +b.slice(5,7) - 1, +b.slice(8,10));
+  return Math.round((bt - at) / 86400000);
+}
+
 /** 07/09 — always two digits each, always day first. */
 function ddmm(s){
   const d = fromIso(s);
@@ -1356,6 +1395,94 @@ function tidyDate(){
   const v = dateValue();
   if (v) $('e-date').value = dateText(v);
   echoDate();
+  echoUntil();                 // the weeks are counted from this date
+}
+
+/* ---- a repeat ------------------------------------------------- */
+/* Thirty at a time. Not a technical limit — the backend takes forty — but a
+ * typo in a year ("20/12/2036") would otherwise quietly make five hundred
+ * events, and a school term is nowhere near thirty weeks. */
+const MAX_EVENTS = 30;
+
+/* Which weeks a repeat comes to, or why it comes to none. Read straight off
+ * the two date fields, so the hint under the field and the save button can
+ * never disagree about what is about to happen. */
+function repeatPlan(){
+  const from = dateValue();
+  const raw = $('e-until').value.trim();
+  if (!raw) return { dates: [] };
+
+  const until = readDate(raw);
+  if (until === null) return { error: 'תאריך לא ברור. אפשר לכתוב 20/12 או 20/12/2026.' };
+  if (!from) return { dates: [] };
+  if (until < from) return { error: 'התאריך צריך לבוא אחרי תאריך האירוע.' };
+
+  const dates = [];
+  for (let d = shiftIso(from, 7); d <= until; d = shiftIso(d, 7)){
+    dates.push(d);
+    if (dates.length + 1 > MAX_EVENTS){
+      return { error: 'יותר מדי. אפשר ליצור עד ' + MAX_EVENTS + ' אירועים בבת אחת.' };
+    }
+  }
+  return { dates: dates, until: until };
+}
+
+function weekdayName(isoDate){
+  const dow = fromIso(isoDate).getDay();
+  return dow === 6 ? 'שבת' : 'יום ' + HE_DAYS[dow];
+}
+
+function echoUntil(){
+  const p = repeatPlan();
+  if (p.error){ say('until-read', p.error, 'err'); return; }
+
+  const from = dateValue();
+  let text = '';
+  if (p.until && from){
+    text = p.dates.length
+      ? (p.dates.length + 1) + ' אירועים, כל ' + weekdayName(from) +
+        ', עד ' + dateText(p.dates[p.dates.length - 1]) + '.'
+      : 'עד התאריך הזה יש אירוע אחד בלבד.';
+  }
+  say('until-read', text);
+  $('until-read').className = 'hint auto';
+}
+
+function tidyUntil(){
+  const v = readDate($('e-until').value);
+  if (v) $('e-until').value = dateText(v);
+  echoUntil();
+}
+
+/* The weeks of this event's repeat that are still to come. Counted on the
+ * phone rather than asked for: the board already holds them, and a question
+ * about what a button is going to do should not need the network. */
+function laterInSeries(ev){
+  if (!ev || !ev.series) return [];
+  return state.events.filter(e =>
+    e.series === ev.series && e.id !== ev.id && e.date > ev.date);
+}
+
+/* What editing or deleting is about to touch. Only asked when there is
+ * something to ask about — the last week of a repeat has nothing after it,
+ * so it is edited like any other event. */
+let editScope = 'one';
+
+function paintSeriesAsk(){
+  const rest = laterInSeries(state.editing).length;
+  $('series-ask').hidden = !rest;
+  if (!rest){ editScope = 'one'; return; }
+
+  $('series-text').textContent = 'אירוע חוזר, עם עוד ' +
+    (rest === 1 ? 'אחד' : rest) + ' אחריו. שמירה ומחיקה יחולו על:';
+  $('b-scope-after').textContent = rest === 1 ? 'וגם הבא אחריו' : 'וגם ' + rest + ' הבאים';
+  $('b-scope-one').setAttribute('aria-pressed', String(editScope === 'one'));
+  $('b-scope-after').setAttribute('aria-pressed', String(editScope === 'after'));
+}
+
+function setScope(which){
+  editScope = which;
+  paintSeriesAsk();
 }
 
 /* ---- backend -------------------------------------------------- */
@@ -1535,6 +1662,7 @@ async function refresh(quiet){
   refreshing = true;
   $('b-refresh').classList.add('spinning');
   const epoch = credEpoch;
+  const stamp = bannerStamp;
   try {
     const r = await api({ action:'state' }, 30000)   /* no retry here: a stale board is a
          readable board, and the next poll is a minute away */;
@@ -1585,7 +1713,11 @@ async function refresh(quiet){
 
     state.offline = false;
     saveBoard();
-    banner(arrivalsText());        // '' when there is nobody new, so it clears
+    /* '' when there is nobody new, so this clears the line — but only if the
+       line is still the one that was up when this request set off. Anything
+       said since was said about something that happened later. */
+    const news = arrivalsText();
+    if (news || bannerStamp === stamp) banner(news);
     render();
   } catch (err) {
     state.offline = true;
@@ -1596,7 +1728,13 @@ async function refresh(quiet){
   }
 }
 
+/* Counted, so a refresh can tell whether the line it is about to clear is the
+ * one that was there when it set off. Two taps in quick succession used to
+ * have the first one's refresh land on the second one's message and wipe it. */
+let bannerStamp = 0;
+
 function banner(text){
+  bannerStamp++;
   $('net-bar').hidden = !text;
   $('net-bar').textContent = text || '';
 }
@@ -2120,6 +2258,20 @@ function render(){
     return;
   }
 
+  /* This week and next, and no further. A repeat that runs to the end of term
+     is twenty cards of a training nobody has to think about yet, and they sit
+     between the parent and the thing they opened the app for. The rest are
+     one tap away and say how many they are. */
+  const horizon = horizonIso();
+  const near = events.filter(e => e.date <= horizon);
+  const later = events.length - near.length;
+  /* An event we have just been told to look at is shown whatever its date:
+     saving one for November and being handed a board that does not contain it
+     reads as a save that did not work. */
+  const wanted = focusEvent ? events.filter(e => e.id === focusEvent)[0] : null;
+  const openAll = showAll || !later || (wanted && wanted.date > horizon);
+  const showing = openAll ? events : near;
+
   /* One column per event, laid out along the page rather than down it. The
      page is RTL, so a plain flex row already puts the soonest event on the
      right and later ones away to the left — the direction a Hebrew reader
@@ -2127,10 +2279,17 @@ function render(){
      the column's own head. */
   const board = el('div', 'board');
   const cols = [];
-  for (const ev of events){
+  for (const ev of showing){
     const col = eventCol(ev);
     cols.push({ col: col, id: ev.id, past: ev.date < today });
     board.appendChild(col);
+  }
+  if (later){
+    /* Where each button lands: the first week being held back, and the next
+       event still to happen. Both are worked out here, where the two lists
+       are, rather than dug back out of the board. */
+    board.appendChild(moreCol(later, openAll, events[near.length],
+                              near.filter(e => e.date >= today)[0] || near[0]));
   }
   list.appendChild(board);
 
@@ -2158,6 +2317,42 @@ function render(){
   if (next) reveal(next.col, true);
 }
 
+/* The last day the board shows without being asked: the end of next week.
+ * Counted to Saturday because that is where an Israeli week ends, so the
+ * answer is "everything up to the end of next week" on a Sunday and on a
+ * Thursday alike, rather than a fortnight that slides. */
+function horizonIso(){
+  const t = todayIso();
+  return shiftIso(t, (6 - fromIso(t).getDay()) + 7);
+}
+
+/* Not remembered between openings. The board's job on being opened is to
+ * answer "who is driving this week", and a parent who once looked at December
+ * has not asked to be shown December every morning since. */
+let showAll = false;
+
+function moreCol(n, openAll, first, home){
+  const col = el('article', 'col more');
+  col.appendChild(el('p', null, openAll
+    ? 'מוצגים כל האירועים, גם הרחוקים.'
+    : 'עוד ' + n + (n === 1 ? ' אירוע' : ' אירועים') + ' בהמשך, אחרי השבוע הבא.'));
+
+  const b = el('button', 'pick', openAll ? 'להציג רק את הקרובים' : 'להציג את כולם');
+  b.type = 'button';
+  b.onclick = () => {
+    showAll = !openAll;
+    /* Opening lands on the first event that was being held back — the thing
+       the button was about. Closing comes back to the next event still to
+       happen, because the far end of the board is where the press left the
+       view and there is nothing there any more. */
+    const land = showAll ? first : home;
+    if (land) focusEvent = land.id;
+    render();
+  };
+  col.appendChild(b);
+  return col;
+}
+
 function eventCol(ev){
   const past = ev.date < todayIso();
   const col = el('article', 'col' + (past ? ' past' : ''));
@@ -2172,6 +2367,9 @@ function eventCol(ev){
   /* Said in words as well as in grey, because colour alone is not a message —
      and a washed-out card is exactly what a dim screen looks like anyway. */
   if (past) when.appendChild(el('span', 'done', 'הסתיים'));
+  /* So that the same training four times over reads as one arrangement
+     rather than as somebody having added it four times. */
+  if (ev.series) when.appendChild(el('span', 'repeats', '↻ שבועי'));
   txt.appendChild(when);
 
   if (ev.place) txt.appendChild(el('div', 'col-where', '📍 ' + ev.place));
@@ -2826,11 +3024,14 @@ function openEdit(ev){
   $('e-back').value = ev ? (ev.backTime || '') : '';
   $('e-place').value = ev ? (ev.place || '') : '';
   $('e-note').value = ev ? (ev.note || '') : '';
-  $('e-repeat').value = '0';
+  $('e-until').value = '';
   $('repeat-field').hidden = !!ev;      // repeating is a thing you do when creating
   $('delete-row').hidden = !ev;
+  editScope = 'one';
+  paintSeriesAsk();
   say('edit-msg', '');
   say('title-read', '');
+  say('until-read', '');
   $('day-ask').hidden = true;
   echoDate();
   paintPlacePicks();
@@ -2878,29 +3079,48 @@ async function saveEvent(){
     place: $('e-place').value.trim(),
     backTime: back,
     note: $('e-note').value.trim(),
-    createdBy: state.me ? state.me.id : ''
+    createdBy: state.me ? state.me.id : '',
+    /* Set once, when the weeks are made, and carried unchanged from then on.
+       An event does not join or leave a repeat by being edited. */
+    series: state.editing ? (state.editing.series || '') : ''
   };
 
-  const repeat = state.editing ? 0 :
-    Math.max(0, Math.min(20, Number($('e-repeat').value) || 0));
+  const plan = state.editing ? { dates: [] } : repeatPlan();
+  if (plan.error){
+    say('edit-msg', plan.error, 'err');
+    $('e-until').focus();
+    return;
+  }
 
   /* Every week of the repeat worked out before anything is sent, so the board
-     can show the whole result at once. Each week is its own event and so its
-     own id. */
-  const planned = [];
-  for (let i = 0; i <= repeat; i++){
-    const ev = Object.assign({}, base);
-    if (i > 0){ ev.id = newId(); ev.date = shiftIso(base.date, 7 * i); }
-    planned.push(ev);
+     can show the whole result at once. Each week is its own event, with its
+     own id and its own drivers; the series id is all they share, and it is
+     what "and the ones after it" reads later. */
+  if (plan.dates.length) base.series = newId();
+  const planned = [base];
+  for (const d of plan.dates){
+    planned.push(Object.assign({}, base, { id: newId(), date: d }));
   }
+
+  /* The rest of the term, when that is what was asked for. Read before the
+     board is touched, because it is decided by where these events are now. */
+  const editing = state.editing;
+  const after = editing && editScope === 'after' ? laterInSeries(editing) : [];
+  const moved = editing ? daysBetween(editing.date, date) : 0;
 
   /* On the board first, then told to the server — the same shape as claiming a
      leg and deleting one. Waiting for the round trip meant staring at the
      editor for three seconds on a good day and eighteen on a bad one, for an
      event that was already decided. Put back in full if the server refuses. */
   const before = state.events.slice();
-  const editing = state.editing;
   for (const ev of planned) showEventNow(ev);
+  for (const e of after){
+    showEventNow(Object.assign({}, e, {
+      title: base.title, time: base.time, backTime: base.backTime,
+      place: base.place, note: base.note,
+      date: moved ? shiftIso(e.date, moved) : e.date
+    }));
+  }
   /* The board should come back looking at what was just saved, not wherever it
      happened to be — a new event, or one whose date changed, will not be where
      the old scroll position points. */
@@ -2909,18 +3129,13 @@ async function saveEvent(){
   show('list');
   render();
 
-  const said = repeat ? 'נשמרו ' + planned.length + ' אירועים.'
-                      : (editing ? 'האירוע עודכן.' : 'האירוע נשמר.');
+  const said = planned.length > 1 ? 'נשמרו ' + planned.length + ' אירועים.'
+             : after.length ? 'האירוע ועוד ' + after.length + ' עודכנו.'
+             : (editing ? 'האירוע עודכן.' : 'האירוע נשמר.');
   banner(said);
 
-  /* A repeat that gives up halfway has really written the weeks it got
-     through, so those stay on the board and only the rest come off. Putting
-     all of them back would tell the parent nothing was saved and then hand
-     them three of them again on the next refresh. */
-  let written = 0;
   const putBack = why => {
     state.events = before;
-    for (let i = 0; i < written; i++) showEventNow(planned[i]);
     focusEvent = null;
     saveBoard();
     render();
@@ -2928,19 +3143,36 @@ async function saveEvent(){
   };
 
   try {
-    for (const ev of planned){
-      /* Two ways Apps Script loses an answer: it hangs, or it hands back an
-         error page instead of the reply. Both leave the phone not knowing
-         whether the event was written, and both are worth going again now
-         that going again cannot duplicate anything. */
-      const r = await sendRetrying({ action:'save', event: ev },
-        () => banner('השרת לא ענה. מנסה שוב…'));
-      if (!r.ok){
-        if (rejected(r.error)) return;
-        putBack('השמירה נכשלה: ' + (r.error || 'שגיאה'));
-        return;
+    /* One request, whether it is one event or fifteen. Sent a week at a time,
+       a term's worth of training was fifteen chances for this backend to lose
+       an answer — and a parent watching four of the fifteen appear.
+
+       Two ways Apps Script loses an answer: it hangs, or it hands back an
+       error page instead of the reply. Both leave the phone not knowing
+       whether anything was written, and both are worth going again, now that
+       going again cannot duplicate anything: every id was made here. */
+    const payload = planned.length > 1
+      ? { action:'series', events: planned }
+      : { action:'save', event: planned[0], scope: after.length ? 'after' : 'one' };
+
+    const slow = () => banner('השרת לא ענה. מנסה שוב…');
+    let r = await sendRetrying(payload, slow);
+
+    /* A phone that has updated itself before the backend has been redeployed
+       is talking to a version that has never heard of a series. Rather than
+       refuse a save that is perfectly possible, send the weeks the old way —
+       one at a time, which is what this did until today. */
+    if (!r.ok && /unknown action/i.test(String(r.error || ''))){
+      for (const ev of planned){
+        r = await sendRetrying({ action:'save', event: ev }, slow);
+        if (!r.ok) break;
       }
-      written++;
+    }
+
+    if (!r.ok){
+      if (rejected(r.error)) return;
+      putBack('השמירה נכשלה: ' + (r.error || 'שגיאה'));
+      return;
     }
     /* Not awaited: the board already shows what was saved. Said again once it
        lands, because a successful refresh clears the banner on its way past. */
@@ -2973,14 +3205,23 @@ function showEventNow(ev){
 async function deleteEvent(){
   if (!state.editing) return;
   const doomed = state.editing;
-  if (!confirm('למחוק את "' + doomed.title + '"? זה ימחק אותו לכל ההורים.')) return;
+  /* The same choice the save button obeys, and the count is in the question:
+     "delete this?" and "delete these twelve?" deserve different answers. */
+  const after = editScope === 'after' ? laterInSeries(doomed) : [];
+  const ask = after.length
+    ? 'למחוק את "' + doomed.title + '" ועוד ' + after.length +
+      ' אירועים אחריו? זה ימחק אותם לכל ההורים.'
+    : 'למחוק את "' + doomed.title + '"? זה ימחק אותו לכל ההורים.';
+  if (!confirm(ask)) return;
 
+  const gone = [doomed].concat(after).map(e => e.id);
   const before = state.events.slice();
-  state.events = state.events.filter(e => e.id !== doomed.id);
+  state.events = state.events.filter(e => gone.indexOf(e.id) < 0);
   saveBoard();
   show('list');
   render();
-  banner('"' + doomed.title + '" נמחק.');
+  banner(after.length ? gone.length + ' אירועים נמחקו.'
+                      : '"' + doomed.title + '" נמחק.');
 
   const putBack = why => {
     state.events = before;
@@ -2992,7 +3233,8 @@ async function deleteEvent(){
   try {
     /* Retried like the rest: removing by id a second time is removing nothing
        the second time, so repeating it cannot do harm. */
-    const r = await sendRetrying({ action:'remove', id: doomed.id });
+    const r = await sendRetrying({ action:'remove', id: doomed.id,
+                                   scope: after.length ? 'after' : 'one' });
     if (!r.ok){
       if (rejected(r.error)) return;
       putBack('המחיקה נכשלה: ' + (r.error || 'שגיאה'));
@@ -3003,7 +3245,8 @@ async function deleteEvent(){
        because a successful refresh clears the banner on its way past and would
        otherwise wipe the one thing naming what was deleted — the card is gone,
        so there is nothing left on screen to point at. */
-    const said = '"' + doomed.title + '" נמחק.';
+    const said = after.length ? gone.length + ' אירועים נמחקו.'
+                              : '"' + doomed.title + '" נמחק.';
     refresh(true).then(() => banner(said), () => banner(said));
   } catch (err) {
     putBack(netMessage(err) + ' המחיקה לא נשמרה.');
@@ -3959,6 +4202,10 @@ $('e-time').addEventListener('blur', () => tidyTime('e-time'));
 $('e-back').addEventListener('blur', () => tidyTime('e-back'));
 $('e-date').addEventListener('input', echoDate);
 $('e-date').addEventListener('blur', tidyDate);
+$('e-until').addEventListener('input', echoUntil);
+$('e-until').addEventListener('blur', tidyUntil);
+$('b-scope-one').onclick = () => setScope('one');
+$('b-scope-after').onclick = () => setScope('after');
 /* Typing the name of a saved place by hand should light its button, and
    typing away from it should put it out again. */
 $('e-place').addEventListener('input', paintPlacePicks);
