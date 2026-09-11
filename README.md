@@ -16,11 +16,12 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   in one go, and one request rather than one per week.
 
   The weeks stay related. Each is its own event with its own drivers, but they
-  share a series id, so one week can speak for the others. Saving asks whether
-  the change is only that week or the rest of the term with it — a time that
-  changed usually changed for all of them. Deleting asks at the moment the
-  button is pressed, not before: this week, or the whole repeat, with the count
-  on the button. A season called off is not twelve separate deletions.
+  share a series id, so one week can speak for the others. Both buttons ask
+  which weeks they mean, at the moment they are pressed rather than through a
+  setting made earlier: saving offers this week or the rest of the term with
+  it, because a time that changed usually changed for all of them, and
+  deleting offers this week or the whole repeat, with the count on the button.
+  A season called off is not twelve separate deletions.
 
   The date and the two times are plain text taking the same shorthand as the
   title — `16`, `1600` and `16:00` are all four o'clock; `15/09`, `15.9` and

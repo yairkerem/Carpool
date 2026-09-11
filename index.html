@@ -421,8 +421,10 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 }
 .pick[aria-pressed="true"]{background:var(--brand-soft);color:var(--brand);border-color:var(--brand);font-weight:700}
 .pick:active{background:var(--line)}
-/* The two that delete something, told apart from the one that does not. */
+/* The ones that do the thing, told apart from the one that backs out of it. */
 .pick.danger-pick{color:var(--danger);border-color:var(--danger);font-weight:700}
+.pick.quiet{border-color:transparent;color:var(--muted)}
+.pick.brand-pick{color:var(--brand);border-color:var(--brand);font-weight:700}
 
 /* The same list in settings, where each row can be taken out again. */
 .places-edit{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
@@ -852,17 +854,6 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     <p class="hint auto" id="until-read"></p>
   </div>
 
-  <!-- Only for an event that is one of a repeat, and only about saving: a
-       time that changed usually changed for the rest of the term. Deleting
-       asks its own question, at the moment the button is pressed. -->
-  <div class="field sect ask" id="series-ask" hidden style="margin-bottom:16px;padding:13px 14px">
-    <p class="hint" id="series-text" style="margin:0 0 9px;color:var(--ink)"></p>
-    <div class="picks">
-      <button type="button" class="pick" id="b-scope-one">רק האירוע הזה</button>
-      <button type="button" class="pick" id="b-scope-after">וגם הבאים אחריו</button>
-    </div>
-  </div>
-
   <div id="edit-msg" class="msg" hidden></div>
 
   <div class="actions">
@@ -870,6 +861,20 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
       <span>שמירה</span>
     </button>
   </div>
+
+  <!-- Both questions about a repeat are asked by the button they belong to,
+       at the moment it is pressed. A control set further up the screen is a
+       decision nobody knows they are taking, and it is read long after the
+       reason for it has scrolled away. -->
+  <div class="sect ask" id="save-ask" hidden style="margin:0 0 18px;padding:13px 14px">
+    <p class="hint" id="save-ask-text" style="margin:0 0 9px;color:var(--ink)"></p>
+    <div class="picks">
+      <button type="button" class="pick brand-pick" id="b-save-one">רק האירוע הזה</button>
+      <button type="button" class="pick brand-pick" id="b-save-after"></button>
+      <button type="button" class="pick quiet" id="b-save-cancel">ביטול</button>
+    </div>
+  </div>
+
   <div class="actions" id="delete-row" hidden>
     <button id="b-delete" class="btn danger">מחיקת האירוע</button>
   </div>
@@ -882,7 +887,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     <div class="picks">
       <button type="button" class="pick danger-pick" id="b-del-one">רק האירוע הזה</button>
       <button type="button" class="pick danger-pick" id="b-del-all"></button>
-      <button type="button" class="pick" id="b-del-cancel">ביטול</button>
+      <button type="button" class="pick quiet" id="b-del-cancel">ביטול</button>
     </div>
   </div>
 </section>
@@ -954,7 +959,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 83;
+const APP_VERSION = 84;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1476,26 +1481,18 @@ function laterInSeries(ev){
     e.series === ev.series && e.id !== ev.id && e.date > ev.date);
 }
 
-/* What editing or deleting is about to touch. Only asked when there is
- * something to ask about — the last week of a repeat has nothing after it,
- * so it is edited like any other event. */
-let editScope = 'one';
-
-function paintSeriesAsk(){
-  const rest = laterInSeries(state.editing).length;
-  $('series-ask').hidden = !rest;
-  if (!rest){ editScope = 'one'; return; }
-
-  $('series-text').textContent = 'אירוע חוזר, עם עוד ' +
-    (rest === 1 ? 'אחד' : rest) + ' אחריו. השמירה תחול על:';
-  $('b-scope-after').textContent = rest === 1 ? 'וגם הבא אחריו' : 'וגם ' + rest + ' הבאים';
-  $('b-scope-one').setAttribute('aria-pressed', String(editScope === 'one'));
-  $('b-scope-after').setAttribute('aria-pressed', String(editScope === 'after'));
-}
-
-function setScope(which){
-  editScope = which;
-  paintSeriesAsk();
+/* What the save is about to touch, asked by the save button once everything
+ * it needs is known to be valid — so nobody chooses between two answers and
+ * is then told the date is unreadable.
+ *
+ * Only asked when there is something to ask about: the last week of a repeat
+ * has nothing after it, and is saved like any other event. */
+function askSave(rest){
+  $('save-ask-text').textContent = 'אירוע חוזר, עם עוד ' +
+    (rest === 1 ? 'אחד' : rest) + ' אחריו. על מה להחיל את השינוי?';
+  $('b-save-after').textContent = rest === 1 ? 'וגם על הבא אחריו' : 'וגם על ' + rest + ' הבאים';
+  $('save-ask').hidden = false;
+  $('save-ask').scrollIntoView({ block:'nearest' });
 }
 
 /* ---- backend -------------------------------------------------- */
@@ -3040,9 +3037,9 @@ function openEdit(ev){
   $('e-until').value = '';
   $('repeat-field').hidden = !!ev;      // repeating is a thing you do when creating
   $('delete-row').hidden = !ev;
-  $('delete-ask').hidden = true;       // never a stale question about a past event
-  editScope = 'one';
-  paintSeriesAsk();
+  /* Never a stale question about the event before this one. */
+  $('delete-ask').hidden = true;
+  $('save-ask').hidden = true;
   say('edit-msg', '');
   say('title-read', '');
   say('until-read', '');
@@ -3059,7 +3056,7 @@ function openEdit(ev){
   if (!ev) $('e-title').focus();
 }
 
-async function saveEvent(){
+async function saveEvent(scope){
   const title = $('e-title').value.trim();
   const date = dateValue();
   if (!title){ say('edit-msg', 'צריך שם לאירוע.', 'err'); return; }
@@ -3119,7 +3116,18 @@ async function saveEvent(){
   /* The rest of the term, when that is what was asked for. Read before the
      board is touched, because it is decided by where these events are now. */
   const editing = state.editing;
-  const after = editing && editScope === 'after' ? laterInSeries(editing) : [];
+  const rest = editing ? laterInSeries(editing) : [];
+
+  /* A week of a repeat, with weeks after it, and nobody has said which are
+     meant. Everything above has already had its say about whether this save
+     is possible at all, so the only question left is the one to ask. */
+  if (rest.length && !scope){
+    askSave(rest.length);
+    return;
+  }
+  $('save-ask').hidden = true;
+
+  const after = scope === 'after' ? rest : [];
   const moved = editing ? daysBetween(editing.date, date) : 0;
 
   /* On the board first, then told to the server — the same shape as claiming a
@@ -4230,7 +4238,9 @@ $('b-new').onclick = () => openEdit(null);
 $('b-update').onclick = applyUpdate;
 
 $('b-edit-back').onclick = () => { show('list'); render(); };
-$('b-save').onclick = saveEvent;
+/* Wrapped, not passed: onclick hands its listener the click, and saveEvent's
+   first argument is which weeks are meant. */
+$('b-save').onclick = () => saveEvent();
 $('b-delete').onclick = askDelete;
 $('b-del-one').onclick = () => deleteEvent('one');
 $('b-del-all').onclick = () => deleteEvent('all');
@@ -4244,8 +4254,9 @@ $('e-date').addEventListener('input', echoDate);
 $('e-date').addEventListener('blur', tidyDate);
 $('e-until').addEventListener('input', echoUntil);
 $('e-until').addEventListener('blur', tidyUntil);
-$('b-scope-one').onclick = () => setScope('one');
-$('b-scope-after').onclick = () => setScope('after');
+$('b-save-one').onclick = () => saveEvent('one');
+$('b-save-after').onclick = () => saveEvent('after');
+$('b-save-cancel').onclick = () => { $('save-ask').hidden = true; };
 /* Typing the name of a saved place by hand should light its button, and
    typing away from it should put it out again. */
 $('e-place').addEventListener('input', paintPlacePicks);
