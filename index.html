@@ -964,7 +964,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 86;
+const APP_VERSION = 87;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1610,10 +1610,26 @@ function rejected(error){
   return true;
 }
 
-/* Being removed empties the device: the board is not theirs to keep, and
-   leaving a stale copy on the phone only invites confusion about whether it
-   is still live. */
+/* Being removed empties the device of that group: the board is not theirs to
+   keep, and leaving a stale copy on the phone only invites confusion about
+   whether it is still live.
+ *
+ * Of that group, and no further. A parent in two carpools who is taken off
+ * one of them is still in the other, and this used to empty the lot —
+ * codes, secrets, boards and all — over a membership that had nothing to do
+ * with it. */
 function signedOut(message){
+  if (state.list.length > 1){
+    state.list.splice(state.i, 1);
+    state.i = Math.min(state.i, state.list.length - 1);
+    persist();
+    state.me = null;
+    credsChanged();
+    Promise.resolve(useGroup(state.i)).then(() => banner(message),
+                                            () => banner(message));
+    return;
+  }
+
   for (const k of Object.keys(LS)) localStorage.removeItem(LS[k]);
   state.me = null;
   state.parents = [];
