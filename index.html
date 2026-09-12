@@ -964,7 +964,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 88;
+const APP_VERSION = 89;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -3083,7 +3083,10 @@ function resetAuto(text){
   const p = parseTitle(text || '');
   auto = {
     last: { day: p.day ? p.day.label : '', time: p.time, back: p.back, place: p.place },
-    touched: {}
+    touched: {},
+    /* Whether the name on screen is one the parent is writing now, or one that
+       arrived with an event. Only the first kind is ever trimmed. */
+    typed: false
   };
 }
 
@@ -3111,6 +3114,10 @@ function flash(id){
 function watchTitle(){
   const p = parseTitle($('e-title').value);
 
+  /* This only ever runs from the field's own input event, which is to say
+     from somebody typing. Nothing the app writes into the box counts. */
+  auto.typed = true;
+
   /* The field carries the written form, so that is what the guess writes into
      it — the label it dedupes on is unchanged either way. */
   applyAuto('day', 'e-date', p.day ? dateText(p.day.iso) : '', p.day ? p.day.label : '');
@@ -3136,6 +3143,18 @@ function watchTitle(){
  * under them mid-word. */
 function tidyTitle(){
   const box = $('e-title');
+
+  /* A name nobody has typed into is left exactly as it is. Trimming belongs
+     to the one-line entry — you write the whole thing, the fields take what
+     they understand, and the leftovers are the name. A name that arrived with
+     an event has been through that already, and its words matching the fields
+     is the normal state of affairs rather than something to tidy up.
+     Duplicating showed this plainly: the copy's date is the next time that
+     weekday comes round, so "אימון כדורגל יום שלישי במגרש" matched on every
+     count and came back as "אימון כדורגל" — renamed by a screen the parent
+     had only opened. */
+  if (!auto.typed) return;
+
   const p = parseTitle(box.value);
 
   /* Only words the fields actually took are removed. Stripping everything the
