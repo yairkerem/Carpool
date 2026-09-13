@@ -527,7 +527,12 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 .rowbtns button{
   border:1px solid var(--line);background:transparent;color:var(--ink);
   border-radius:10px;padding:8px 13px;font-size:14px;cursor:pointer;
+  display:inline-flex;align-items:center;gap:8px;
 }
+/* A button that is working has to look it. These had no disabled state at
+   all, so a tap that started twenty seconds of requests left a button that
+   looked exactly as it had before — idle, and tapped again. */
+.rowbtns button:disabled{opacity:.6;cursor:default}
 </style>
 </head>
 <body>
@@ -964,7 +969,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 91;
+const APP_VERSION = 92;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1011,12 +1016,13 @@ const RETRY_BUDGET_MS = 25000;
  * cheap. Every caller is idempotent by construction: an event carries an id
  * the phone made, the group settings set absolute values, and claiming a leg
  * you are already on does nothing. */
-async function sendRetrying(payload, onRetry){
+async function sendRetrying(payload, onRetry, as){
   let spent = 0;
   for (let attempt = 0; ; attempt++){
     const began = Date.now();
     try {
-      const r = await api(payload, TRY_MS[Math.min(attempt, TRY_MS.length - 1)]);
+      /* `as`: a membership other than the one on screen — see api(). */
+      const r = await api(payload, TRY_MS[Math.min(attempt, TRY_MS.length - 1)], null, as);
       noteHealth(attempt ? 'recovered' : 'clean', r && r.ms);
       noteTrail(payload, r && r.ok ? '✓' : '✗');
       return r;
@@ -1911,18 +1917,26 @@ function pushWhy(error){
 }
 
 async function pushEverywhere(sub){
-  const trouble = [];
-  for (const m of state.list){
-    if (!m.backend || !m.secret || !m.groupId || !m.me) continue;
-    try {
-      const r = await api({ action:'push', sub: sub }, 20000, null, m);
-      if (!r.ok) trouble.push({ label: groupLabel(m), why: pushWhy(r.error), fixable: !r.ok &&
-        /not found|removed|unauthorized/i.test(String(r.error || '')) });
-    } catch (err) {
-      trouble.push({ label: groupLabel(m), why: netMessage(err), fixable: false });
-    }
-  }
-  return trouble;
+  /* All groups at once, not one after another. Each is a round trip to Apps
+     Script — seconds on a good day — and in turn two groups was twice the
+     wait for a button that says nothing while it waits. Separate requests
+     write separate rows, so there is nothing for them to trip over.
+
+     Retried like any other save: setting a subscription is an absolute
+     value, so sending it again is harmless, and a group that happened to
+     lose one answer should not be reported as refusing. */
+  const results = await Promise.all(state.list
+    .filter(m => m.backend && m.secret && m.groupId && m.me)
+    .map(async m => {
+      try {
+        const r = await sendRetrying({ action:'push', sub: sub }, null, m);
+        return r.ok ? null : { label: groupLabel(m), why: pushWhy(r.error),
+          fixable: /not found|removed|unauthorized/i.test(String(r.error || '')) };
+      } catch (err) {
+        return { label: groupLabel(m), why: netMessage(err), fixable: false };
+      }
+    }));
+  return results.filter(Boolean);
 }
 
 /* "ready, except in X: this device is not registered there" — plus, when that
@@ -1938,20 +1952,37 @@ async function togglePush(){
   const btn = $('b-push');
   say('push-msg', '');
   btn.disabled = true;
+
+  /* Said on the button and under it, straight away. What follows can take
+     a while — the browser's own permission question, then a request to every
+     group this device is in — and a button that does not visibly change reads
+     as a tap that did not register. paintPush puts the label back after. */
+  const working = (label, line) => {
+    btn.textContent = '';
+    btn.appendChild(el('span', 'spin'));
+    btn.appendChild(el('span', null, label));
+    if (line) say('push-msg', line);
+  };
+  const groups = state.list.length;
+  const reach = groups > 1 ? 'מעדכן את ' + groups + ' הקבוצות במכשיר הזה…' : 'מעדכן את הקבוצה…';
+
   try {
     const existing = await currentSub();
     if (existing){
+      working('מכבה…', reach);
       await existing.unsubscribe();
       const trouble = await pushEverywhere(null);
       say('push-msg', trouble.length
         ? 'ההתראות כובו במכשיר הזה. ' + troubleText(trouble)
         : 'ההתראות כובו במכשיר הזה.', trouble.length ? 'err' : 'ok');
     } else {
+      working('מפעיל…');
       const allowed = await Notification.requestPermission();
       if (allowed !== 'granted'){
         say('push-msg', 'בלי אישור הדפדפן אי אפשר לשלוח התראות.', 'err');
         return;
       }
+      working('מפעיל…', reach);
       const sub = await swReg.pushManager.subscribe({
         /* Required, and meant literally: every push must become a visible
            notification or the browser takes the permission away. */
