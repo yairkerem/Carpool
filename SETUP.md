@@ -359,15 +359,17 @@ inside one hour, which it is entitled to do.
 
 **And once a week, to everybody.** On the evening before the week's first
 event, every subscribed device in the group is told how many legs that week
-still have no driver, with the first four named: *3 נסיעות השבוע עדיין בלי
-נהג: • אימון כדורגל, יום שלישי 22/09 — חזור 18:15 …* Nothing is sent in a
-week where every leg has somebody. The personal reminder can only reach parents
-who are already down to drive; this is for the legs nobody is, which have
-nobody to tell. The week runs Sunday to Saturday, and "the evening before the
-first event" rather than a fixed day, because a week that starts on Tuesday is
-still wide open on Sunday night. A leg counts as unassigned only with no driver
-at all. It runs from the same hourly trigger at the group's same time, with its
-own `weeklyOn` column so it too sends once. Run **`testWeekly`** to send the
+are still short of drivers, with the first four named and how short each is:
+*3 נסיעות השבוע עדיין בלי מספיק נהגים: • אימון כדורגל, יום שלישי 22/09 —
+חזור 18:15 (1 מתוך 2 נהגים) …* Short means fewer drivers than the group's own
+drivers-per-leg setting, the same rule the board uses for its green ✓ מסודר.
+Nothing is sent in a week where every leg is sorted. The personal reminder can
+only reach parents who are already down to drive; a short leg needs somebody
+who is not on it yet. The week runs Sunday to Saturday, and "the evening before
+the first event" rather than a fixed day, because a week that starts on
+Tuesday is still wide open on Sunday night. It runs from the same hourly
+trigger at the group's same time, with its own `weeklyOn` column so it too
+sends once. Run **`testWeekly`** to send the
 coming week's notice immediately instead of waiting for its evening.
 
 The notification carries two images, and they are not interchangeable. The

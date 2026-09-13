@@ -29,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 25;
+const BACKEND_VERSION = 26;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -691,19 +691,20 @@ function remindOneGroup(group) {
 /* ---------- the weekly look-ahead ----------
  *
  * The evening before the week's first event, everyone who has notifications on
- * is told how many legs that week still have nobody driving — once, and only
+ * is told how many legs that week are still short of drivers — once, and only
  * if there are any.
  *
  * Everyone, not only drivers. The personal reminder can only speak to parents
- * who have already put themselves down; this one is for the legs nobody has,
- * which by definition have nobody to tell. And the evening before the first
- * event rather than a fixed Saturday: a week that starts on Tuesday is still
- * wide open on Sunday night, and a Saturday notice about it is read and
- * forgotten by Tuesday.
+ * who have already put themselves down; a leg that is short needs somebody
+ * who is not on it yet, and those are exactly the people it cannot reach. And
+ * the evening before the first event rather than a fixed Saturday: a week that
+ * starts on Tuesday is still wide open on Sunday night, and a Saturday notice
+ * about it is read and forgotten by Tuesday.
  *
- * Unassigned means no driver at all. A leg with one of the two cars it wants
- * is shown amber-free on the board and handled by whoever is on it; waking the
- * whole group for it would make this the notice people learn to ignore. */
+ * Short means fewer drivers than the group wants — its own setting, two unless
+ * the admin changed it. That is the board's rule for the green ✓ מסודר, so a
+ * leg is counted here exactly when the board shows it as not yet sorted: no
+ * driver, or one car where two are needed. */
 const HE_DAY = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 
 function dayOfWeek(iso) {
@@ -717,9 +718,10 @@ function dayWords(iso) {
 }
 
 /* The Sunday-to-Saturday week a date falls in: when its first event is, and
- * every leg from `from` onward that nobody is driving, in the order they
- * happen. */
+ * every leg from `from` onward with fewer drivers than the group wants, in the
+ * order they happen. */
 function openLegsInWeek(evs, from) {
+  const wanted = driversWanted();
   const start = shiftDays(from, -dayOfWeek(from));
   const end = shiftDays(start, 6);
   const week = evs.filter(e => e.date >= start && e.date <= end);
@@ -728,12 +730,14 @@ function openLegsInWeek(evs, from) {
   const open = [];
   week.filter(e => e.date >= from).forEach(function (e) {
     [['toDriver', 'הלוך', e.time], ['backDriver', 'חזור', e.backTime]].forEach(function (leg) {
-      if ((e[leg[0]] || []).length) return;
-      open.push({ title: e.title || 'אירוע', date: e.date, which: leg[1], time: leg[2] || '' });
+      const have = (e[leg[0]] || []).length;
+      if (have >= wanted) return;
+      open.push({ title: e.title || 'אירוע', date: e.date, which: leg[1],
+                  time: leg[2] || '', have: have });
     });
   });
   open.sort((a, b) => (a.date + (a.time || '99:99')).localeCompare(b.date + (b.time || '99:99')));
-  return { start: start, end: end, first: first, open: open };
+  return { start: start, end: end, first: first, open: open, wanted: wanted };
 }
 
 /* One notice, the same for everybody. Four legs named and the rest counted:
@@ -743,11 +747,16 @@ const WEEKLY_LINES = 4;
 
 function weeklyItems(group, look) {
   const n = look.open.length;
+  /* Each leg says how short it is, because "no driver" and "one of two" ask
+     different things of whoever reads it: the first needs a parent, the
+     second needs a second car. */
   const lines = look.open.slice(0, WEEKLY_LINES).map(l =>
-    '• ' + l.title + ', ' + dayWords(l.date) + ' — ' + l.which + (l.time ? ' ' + l.time : ''));
+    '• ' + l.title + ', ' + dayWords(l.date) + ' — ' + l.which + (l.time ? ' ' + l.time : '') +
+    ' (' + (l.have ? l.have + ' מתוך ' + look.wanted + ' נהגים' : 'אין נהג') + ')');
   if (n > WEEKLY_LINES) lines.push('ועוד ' + (n - WEEKLY_LINES) + '.');
 
-  const body = (n === 1 ? 'נסיעה אחת השבוע עדיין בלי נהג:' : n + ' נסיעות השבוע עדיין בלי נהג:') +
+  const body = (n === 1 ? 'נסיעה אחת השבוע עדיין בלי מספיק נהגים:'
+                        : n + ' נסיעות השבוע עדיין בלי מספיק נהגים:') +
                '\n' + lines.join('\n');
 
   /* One tag for the week, so a second send replaces this one rather than
@@ -846,7 +855,7 @@ function testWeekly() {
     const items = look.open.length ? weeklyItems(g, look) : [];
     const sent = items.length ? pushSend(items) : 0;
     out.push(g.id + '  ' + (g.name || '(unnamed)') + '   week of ' + look.start +
-             ': ' + look.open.length + ' legs without a driver, sent to ' + sent + ' device(s)');
+             ': ' + look.open.length + ' legs short of drivers, sent to ' + sent + ' device(s)');
   });
   CURRENT = null;
   return say_(out.join('\n'));

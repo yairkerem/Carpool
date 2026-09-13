@@ -964,7 +964,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 90;
+const APP_VERSION = 91;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1885,8 +1885,8 @@ async function paintPush(){
   /* Both notices, so nobody is surprised by the second: the personal one for a
      ride you are down for, and the weekly one about rides nobody is. */
   note.textContent = sub
-    ? 'המכשיר הזה יקבל תזכורת בערב שלפני נסיעה שאתם משובצים אליה, והודעה בערב שלפני השבוע אם נשארו בו נסיעות בלי נהג.'
-    : 'תזכורת בערב שלפני כל נסיעה שאתם משובצים אליה, והודעה בערב שלפני השבוע אם נשארו בו נסיעות בלי נהג. ההגדרה היא למכשיר הזה בלבד.';
+    ? 'המכשיר הזה יקבל תזכורת בערב שלפני נסיעה שאתם משובצים אליה, והודעה בערב שלפני השבוע אם נשארו בו נסיעות בלי מספיק נהגים.'
+    : 'תזכורת בערב שלפני כל נסיעה שאתם משובצים אליה, והודעה בערב שלפני השבוע אם נשארו בו נסיעות בלי מספיק נהגים. ההגדרה היא למכשיר הזה בלבד.';
 }
 
 /* A subscription belongs to the browser, not to a group: one device has one,
