@@ -29,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 24;
+const BACKEND_VERSION = 25;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -74,7 +74,9 @@ const RIDERS = { to: 'toRiders', back: 'backRiders' };
  * and the Parents tab carry the code — appended at the end, like every column
  * added after the fact. */
 const GROUP_COLS = ['id', 'name', 'secret', 'driversWanted', 'createdAt', 'removed',
-                    'places', 'remindAt', 'remindedOn'];
+                    'places', 'remindAt', 'remindedOn',
+                    /* The evening the weekly look-ahead last ran, so it runs once. */
+                    'weeklyOn'];
 
 /* The group this request is for, resolved once in doPost and read by
  * everything downstream rather than threaded through twenty signatures. Safe
@@ -599,6 +601,12 @@ function pushReminders() {
     } catch (err) {
       Logger.log('reminder failed for ' + g.id + ': ' + err);
     }
+    /* Separately caught: a fault in one must not cost the group the other. */
+    try {
+      weeklyOneGroup(g);
+    } catch (err) {
+      Logger.log('weekly look-ahead failed for ' + g.id + ': ' + err);
+    }
   });
   CURRENT = null;
 }
@@ -680,6 +688,96 @@ function remindOneGroup(group) {
   if (items.length) pushSend(items);
 }
 
+/* ---------- the weekly look-ahead ----------
+ *
+ * The evening before the week's first event, everyone who has notifications on
+ * is told how many legs that week still have nobody driving — once, and only
+ * if there are any.
+ *
+ * Everyone, not only drivers. The personal reminder can only speak to parents
+ * who have already put themselves down; this one is for the legs nobody has,
+ * which by definition have nobody to tell. And the evening before the first
+ * event rather than a fixed Saturday: a week that starts on Tuesday is still
+ * wide open on Sunday night, and a Saturday notice about it is read and
+ * forgotten by Tuesday.
+ *
+ * Unassigned means no driver at all. A leg with one of the two cars it wants
+ * is shown amber-free on the board and handled by whoever is on it; waking the
+ * whole group for it would make this the notice people learn to ignore. */
+const HE_DAY = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+
+function dayOfWeek(iso) {
+  const p = iso.split('-').map(Number);
+  return new Date(p[0], p[1] - 1, p[2], 12).getDay();   // noon: no clock change moves it
+}
+
+function dayWords(iso) {
+  const d = dayOfWeek(iso);
+  return (d === 6 ? 'שבת' : 'יום ' + HE_DAY[d]) + ' ' + iso.slice(8, 10) + '/' + iso.slice(5, 7);
+}
+
+/* The Sunday-to-Saturday week a date falls in: when its first event is, and
+ * every leg from `from` onward that nobody is driving, in the order they
+ * happen. */
+function openLegsInWeek(evs, from) {
+  const start = shiftDays(from, -dayOfWeek(from));
+  const end = shiftDays(start, 6);
+  const week = evs.filter(e => e.date >= start && e.date <= end);
+  const first = week.map(e => e.date).sort()[0] || '';
+
+  const open = [];
+  week.filter(e => e.date >= from).forEach(function (e) {
+    [['toDriver', 'הלוך', e.time], ['backDriver', 'חזור', e.backTime]].forEach(function (leg) {
+      if ((e[leg[0]] || []).length) return;
+      open.push({ title: e.title || 'אירוע', date: e.date, which: leg[1], time: leg[2] || '' });
+    });
+  });
+  open.sort((a, b) => (a.date + (a.time || '99:99')).localeCompare(b.date + (b.time || '99:99')));
+  return { start: start, end: end, first: first, open: open };
+}
+
+/* One notice, the same for everybody. Four legs named and the rest counted:
+ * a notification is read on a lock screen, and a list that runs off it tells
+ * nobody anything the count did not. */
+const WEEKLY_LINES = 4;
+
+function weeklyItems(group, look) {
+  const n = look.open.length;
+  const lines = look.open.slice(0, WEEKLY_LINES).map(l =>
+    '• ' + l.title + ', ' + dayWords(l.date) + ' — ' + l.which + (l.time ? ' ' + l.time : ''));
+  if (n > WEEKLY_LINES) lines.push('ועוד ' + (n - WEEKLY_LINES) + '.');
+
+  const body = (n === 1 ? 'נסיעה אחת השבוע עדיין בלי נהג:' : n + ' נסיעות השבוע עדיין בלי נהג:') +
+               '\n' + lines.join('\n');
+
+  /* One tag for the week, so a second send replaces this one rather than
+     stacking beside it. */
+  return pushTargets(null).map(t => ({
+    parentId: t.parentId, sub: t.sub,
+    title: group.name || 'הסעות', body: body,
+    tag: 'open-week-' + look.start, url: './'
+  }));
+}
+
+function weeklyOneGroup(group) {
+  const stamp = today();
+  if (group.weeklyOn === stamp) return;                   // already decided tonight
+  if (nowMinutes() < timeToMinutes(remindAt())) return;   // not yet this evening
+
+  const tomorrow = shiftDays(stamp, 1);
+  const look = openLegsInWeek(state().events, tomorrow);
+
+  /* Written whatever the answer, for the same reason as the evening reminder:
+     most evenings are not the eve of a week, and without the stamp each of
+     them would be worked out again every hour until midnight. */
+  const sh = sheet('Groups', GROUP_COLS);
+  const row = readAll(sh, GROUP_COLS).filter(x => x.id === group.id)[0];
+  if (row) { row.weeklyOn = stamp; writeRow(sh, GROUP_COLS, row); }
+
+  if (look.first !== tomorrow || !look.open.length) return;
+  pushSend(weeklyItems(group, look));
+}
+
 function nowMinutes() {
   return Number(Utilities.formatDate(new Date(), TZ, 'H')) * 60 +
          Number(Utilities.formatDate(new Date(), TZ, 'm'));
@@ -727,6 +825,28 @@ function testPush() {
       })));
       out.push('     sent ' + sent + ' of ' + targets.length);
     }
+  });
+  CURRENT = null;
+  return say_(out.join('\n'));
+}
+
+/** See the weekly look-ahead without waiting for its evening: for each group,
+ *  takes the week of the next event after today and, if any leg in it has no
+ *  driver, sends the notice now to every subscribed device. */
+function testWeekly() {
+  migrate();
+  const out = [];
+  allGroups().forEach(function (g) {
+    CURRENT = g;
+    const evs = state().events;
+    const next = evs.map(e => e.date).filter(d => d > today()).sort()[0];
+    if (!next) { out.push(g.id + '  ' + (g.name || '(unnamed)') + '   no upcoming events'); return; }
+
+    const look = openLegsInWeek(evs, next);
+    const items = look.open.length ? weeklyItems(g, look) : [];
+    const sent = items.length ? pushSend(items) : 0;
+    out.push(g.id + '  ' + (g.name || '(unnamed)') + '   week of ' + look.start +
+             ': ' + look.open.length + ' legs without a driver, sent to ' + sent + ' device(s)');
   });
   CURRENT = null;
   return say_(out.join('\n'));
