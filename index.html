@@ -969,7 +969,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 92;
+const APP_VERSION = 93;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1125,7 +1125,10 @@ const LS = {
      build should still find the group it had. */
   backend:'cp.backend', secret:'cp.secret', me:'cp.me', board:'cp.board',
   /* The last few writes and the scope each carried — settings shows them. */
-  trail:'cp.trail'
+  trail:'cp.trail',
+  /* The tail of the push endpoint this device last wrote to a group, which is
+     how it tells its own registration from another device's. */
+  push:'cp.push'
 };
 
 /* A membership: one group, on this device.
@@ -1811,6 +1814,10 @@ async function refresh(quiet){
     if (stray) banner(stray);
     else if (news || bannerStamp === stamp) banner(news);
     render();
+
+    /* Not awaited, and silent unless it has something to put right: the board
+       is already drawn, and this only matters by the evening. */
+    syncPush(r).catch(() => {});
   } catch (err) {
     state.offline = true;
     if (!quiet) banner(netMessage(err) + ' מוצג המידע האחרון שנטען.');
@@ -1904,6 +1911,56 @@ async function paintPush(){
  * So every group this device belongs to is told, each with its own code,
  * secret and member id. Failures are collected rather than thrown: a group
  * that refuses should be named, not stop the others from being told. */
+/* The tail of an endpoint: enough to recognise a subscription by, useless for
+ * sending anything to it. */
+function subTail(sub){
+  const e = sub ? (sub.endpoint || '') : '';
+  return e ? e.slice(-12) : '';
+}
+
+function rememberPush(tail){
+  try {
+    if (tail) localStorage.setItem(LS.push, tail);
+    else localStorage.removeItem(LS.push);
+  } catch (e) { /* private mode */ }
+}
+
+function lastPushWritten(){
+  try { return localStorage.getItem(LS.push) || ''; } catch (e) { return ''; }
+}
+
+/* Does this group still hold this device's subscription?
+ *
+ * Reminders stop for reasons nobody can see. A push service retires an
+ * endpoint and the backend drops it as dead; a phone registers again and the
+ * subscription stays behind on the row it used to be; a cell is cleared by
+ * hand in the sheet. The app goes on showing notifications as on, because the
+ * browser's own subscription is fine — it is the group's copy that has gone,
+ * and the first anyone hears of it is a reminder that never came.
+ *
+ * So every refresh compares the two and puts it back when it is missing. It
+ * writes in exactly two cases: the group holds nothing, or the group holds
+ * what this device wrote last and this device's endpoint has since changed.
+ * Anything else is another device's registration — a parent's phone and their
+ * laptop share one row — and overwriting it would set the two of them fighting
+ * over that row once a minute. */
+async function syncPush(reply){
+  if (!reply || !reply.push || !pushSupported() || !swReg) return;
+
+  const sub = await currentSub();
+  if (!sub) return;               // nothing to offer, and never clear another's
+  const mine = subTail(sub);
+
+  if (reply.push.on && reply.push.tail === mine){
+    rememberPush(mine);           // it is ours: remember, so a rotation is known
+    return;
+  }
+  if (reply.push.on && reply.push.tail !== lastPushWritten()) return;
+
+  const r = await sendRetrying({ action:'push', sub: sub.toJSON() }, null, here());
+  if (r && r.ok) rememberPush(mine);
+}
+
 /* Why a group would not take it, in words that say what to do about it.
  * "not found" is the backend's own phrase for the one thing a parent can
  * actually fix, and on its own it reads like a fault in the app. */
@@ -1971,6 +2028,7 @@ async function togglePush(){
     if (existing){
       working('מכבה…', reach);
       await existing.unsubscribe();
+      rememberPush('');
       const trouble = await pushEverywhere(null);
       say('push-msg', trouble.length
         ? 'ההתראות כובו במכשיר הזה. ' + troubleText(trouble)
@@ -1990,6 +2048,7 @@ async function togglePush(){
         applicationServerKey: urlB64ToBytes(VAPID_PUBLIC)
       });
       const trouble = await pushEverywhere(sub.toJSON());
+      if (trouble.length < state.list.length) rememberPush(subTail(sub.toJSON()));
 
       /* Only if not one group took it. A subscription that reached two out of
          three is worth keeping: those two will send reminders, and the third
@@ -4175,6 +4234,12 @@ function registerSW(){
    * That is why it only ever failed on a phone that had never opened the app,
    * and in a private window — the two places with no controller. */
   const hadController = !!navigator.serviceWorker.controller;
+
+  /* The worker says when the browser has handed it a new subscription, so an
+     open window puts it back at once instead of at its next refresh. */
+  navigator.serviceWorker.addEventListener('message', e => {
+    if (e.data && e.data.type === 'PUSH_CHANGED') refresh(true);
+  });
 
   navigator.serviceWorker.register('sw.js').then(reg => {
     swReg = reg;

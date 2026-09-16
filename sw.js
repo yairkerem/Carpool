@@ -8,7 +8,7 @@
  * cross-origin POST, and the guard in fetch() below only ever handles
  * same-origin GETs.
  */
-const CACHE_VERSION = 'v92';
+const CACHE_VERSION = 'v93';
 const CACHE = 'carpool-shell-' + CACHE_VERSION;
 
 const SHELL = [
@@ -126,6 +126,44 @@ self.addEventListener('push', event => {
     tag: data.tag || 'carpool',
     data: { url: data.url || './' }
   }));
+});
+
+/* The browser can retire a subscription on its own — a push service that
+ * rotates its registrations, a long quiet spell, an update to the browser
+ * itself. The old endpoint then answers 410, the backend drops it as dead, and
+ * the reminders simply stop while the app still looks switched on.
+ *
+ * So take the new one immediately. The worker cannot reach the backend by
+ * itself — the group's code and secret live in the page's storage, which a
+ * worker cannot read — so it subscribes again and tells whatever window is
+ * open; a window that is not open reconciles on its next refresh instead,
+ * which is what syncPush in the app is for.
+ *
+ * The key must stay identical to VAPID_PUBLIC in index.html: subscribing with
+ * a different one is refused for a scope that already has a subscription. */
+const VAPID_PUBLIC =
+  'BIcdkb6DgUggjq0r-mXLDF8Z_ZByamhiuGzbjy-RlxyWkdkwhN3Z2mC5g15u4R6h35RxXxSyIuUxvWFltZuFdcc';
+
+function keyBytes(s){
+  const pad = s.replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(pad + '='.repeat((4 - pad.length % 4) % 4));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+self.addEventListener('pushsubscriptionchange', event => {
+  event.waitUntil((async () => {
+    try {
+      await self.registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: keyBytes(VAPID_PUBLIC)
+      });
+    } catch (err) { return; }          // nothing more this worker can do alone
+
+    const list = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+    list.forEach(c => c.postMessage({ type: 'PUSH_CHANGED' }));
+  })());
 });
 
 self.addEventListener('notificationclick', event => {

@@ -29,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 26;
+const BACKEND_VERSION = 27;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -83,6 +83,12 @@ const GROUP_COLS = ['id', 'name', 'secret', 'driversWanted', 'createdAt', 'remov
  * for the same reason the lock counter is: an Apps Script execution is
  * single-threaded, and separate executions share nothing. */
 let CURRENT = null;
+
+/* Who is asking, resolved once in doPost like CURRENT. Only state() uses it,
+ * to tell a phone whether this group is holding that phone's own push
+ * subscription — which is how a subscription that quietly went missing gets
+ * noticed and put back. */
+let ME = '';
 
 /* When this execution began, so every reply can say how long it took. A save
  * that is slow and a save that never arrives look identical from a phone. */
@@ -905,6 +911,7 @@ function doPost(e) {
        code, and its owner re-enters the code once. */
     const wanted = String(req.group || '').trim().toLowerCase();
     CURRENT = wanted ? (groups.filter(g => g.id === wanted)[0] || null) : null;
+    ME = String(req.me || '');
 
     /* One answer for a wrong code and a wrong secret, deliberately. Telling a
        stranger which of the two they got right turns the group list into
@@ -1175,8 +1182,21 @@ function state() {
     remindAt: remindAt(),
     parents: people,
     events: rows,
+    /* What this group holds for the phone that is asking: whether it has a
+       push subscription at all, and the tail of its endpoint. Enough for the
+       phone to tell "mine" from "another device of mine" from "nothing",
+       and far too little to send anything with. */
+    push: pushHeld(ME),
     now: new Date().toISOString()
   };
+}
+
+function pushHeld(id) {
+  const p = id ? parents().filter(x => x.id === id)[0] : null;
+  let endpoint = '';
+  try { endpoint = p && p.push ? String(JSON.parse(p.push).endpoint || '') : ''; }
+  catch (err) { endpoint = ''; }
+  return { on: !!endpoint, tail: endpoint ? endpoint.slice(-12) : '' };
 }
 
 function parseList(raw) {

@@ -385,6 +385,20 @@ service then answers 404 or 410 for it forever. Those are cleared out of the
 sheet automatically; a 500 or a timeout is left alone, since it may well work
 tomorrow.
 
+**And it puts itself back.** A browser may retire a subscription on its own,
+and a phone that registers again leaves its old subscription behind on the row
+it used to be — either way the sheet ends up empty while the app still shows
+notifications as on, and the first anyone hears of it is a reminder that never
+came. So every `state` reply tells the phone what that group is holding for it:
+whether there is a subscription and the last twelve characters of its endpoint,
+which is enough to recognise and useless for sending. When the group has
+nothing, or still has what this device wrote last while this device's endpoint
+has changed, the app quietly writes it back. Another device's registration is
+left alone — a phone and a laptop share one row, and overwriting would set them
+fighting over it once a minute. The service worker also listens for
+`pushsubscriptionchange` and subscribes again at once, so the repair is waiting
+by the time the app is next opened.
+
 ## Optional: the nightly nudge
 
 A carpool fails quietly — nobody claimed tomorrow morning and nobody noticed.
