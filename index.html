@@ -1008,7 +1008,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 95;
+const APP_VERSION = 96;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -2072,6 +2072,43 @@ async function syncPush(reply){
 
   const r = await sendRetrying({ action:'push', sub: sub.toJSON() }, null, here());
   if (r && r.ok) rememberPush(mine);
+}
+
+/* The other half of putting a lost subscription back.
+ *
+ * syncPush repairs the group's copy, and can only do that while the browser
+ * still has a subscription to copy. Sometimes it is the browser's that has
+ * gone — a push service that dropped its registration, a worker replaced,
+ * whatever Android does to an app it has not seen for a fortnight. Then the
+ * switch simply reads "off" one morning, and the parent is left to notice
+ * that a reminder never came.
+ *
+ * So: permission still granted, this device had notifications on, and no
+ * subscription. That is not a decision anybody made, and subscribing again
+ * asks nobody anything — permission is already given, and the browser shows
+ * no prompt. Turning them off deliberately clears the record of having had
+ * them on, so a parent who switched them off is left switched off. */
+async function revivePush(){
+  if (!pushSupported() || !swReg) return;
+  if (Notification.permission !== 'granted') return;
+  if (!lastPushWritten()) return;              // never on, or turned off on purpose
+  if (await currentSub()) return;              // still there; nothing to revive
+
+  let sub;
+  try {
+    sub = await swReg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlB64ToBytes(VAPID_PUBLIC)
+    });
+  } catch (err) { return; }
+
+  const trouble = await pushEverywhere(sub.toJSON());
+  if (trouble.length >= state.list.length){
+    await sub.unsubscribe();                   // no group took it: leave no trace
+    return;
+  }
+  rememberPush(subTail(sub.toJSON()));
+  paintPush();
 }
 
 /* Why a group would not take it, in words that say what to do about it.
@@ -3725,6 +3762,9 @@ function openSetup(message){
   $('i-remind').value = state.remindAt || '';
   say('group-msg', '');
   paintPush();
+  /* Opening settings is the moment a parent would notice the switch had gone
+     off by itself, so it is a good moment to have put it back. */
+  revivePush().catch(() => {});
 
   /* A fresh copy each time the screen opens, so backing out of it and coming
      back does not show yesterday's half-finished edit. */
@@ -4362,6 +4402,9 @@ function registerSW(){
 
   navigator.serviceWorker.register('sw.js').then(reg => {
     swReg = reg;
+    /* Once the worker is in hand, check the device still has the subscription
+       it is supposed to have. Silent when there is nothing to put right. */
+    revivePush().catch(() => {});
     if (reg.waiting && navigator.serviceWorker.controller) offerUpdate();
     reg.addEventListener('updatefound', () => {
       const w = reg.installing;
