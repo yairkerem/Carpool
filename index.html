@@ -434,6 +434,32 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 .pick.quiet{border-color:transparent;color:var(--muted)}
 .pick.brand-pick{color:var(--brand);border-color:var(--brand);font-weight:700}
 
+/* The date rail. A row of days that scrolls sideways, the same direction the
+   board does, with the weekday over the number because the weekday is what a
+   parent plans by. No months to page through and no year: a carpool is
+   arranged weeks ahead, not years. */
+.rail{
+  display:flex;gap:6px;margin-top:8px;padding:2px 0 4px;
+  overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;
+}
+.rail::-webkit-scrollbar{display:none}
+.rail .day{
+  flex:0 0 46px;height:54px;padding:0;cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  border:1px solid var(--line);border-radius:12px;
+  background:var(--card);color:var(--ink);
+}
+.rail .day b{font-size:12px;font-weight:700;color:var(--muted)}
+.rail .day span{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}
+/* Today is ringed; the chosen day is filled. A day can be both. */
+.rail .day.today{border-color:var(--brand)}
+.rail .day.on{background:var(--brand);border-color:var(--brand);color:#fff}
+.rail .day.on b{color:#fff}
+.rail .mon{
+  flex:0 0 auto;align-self:center;padding:0 2px;
+  font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap;
+}
+
 /* The same list in settings, where each row can be taken out again. */
 .places-edit{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
 .place-row{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:11px;padding:9px 12px}
@@ -815,6 +841,11 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     <input id="e-date" type="text" dir="ltr" inputmode="numeric" pattern="[0-9/.]*"
            maxlength="10" autocomplete="off" placeholder="15/09">
     <p class="hint" id="date-read"></p>
+    <!-- The next ten weeks, today first, running the way the board runs. The
+         field above still takes a typed date and is still what the one-line
+         parser writes into; this is for the ordinary case of "the Tuesday
+         after next", where counting the days is the only hard part. -->
+    <div class="rail" id="date-rail" role="group" aria-label="בחירת תאריך"></div>
     <!-- A day named as a day, landing on tomorrow, is the one reading this
          parser cannot settle: somebody who meant tomorrow would probably have
          said מחר, and somebody who meant next week said exactly this. Asked
@@ -977,7 +1008,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 94;
+const APP_VERSION = 95;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1450,6 +1481,7 @@ function askAboutDay(day){
     auto.touched.day = true;
     box.hidden = true;
     echoDate();
+    paintRail(true);            // and bring the answer into view on the rail
     watchTitle();
   };
   $('b-day-soon').onclick = () => choose(day.iso);
@@ -1467,6 +1499,7 @@ function echoDate(){
   }
   say('date-read', v ? dayLabel(v) : '');
   $('date-read').className = 'hint auto';
+  paintRail(false);
 }
 
 function tidyDate(){
@@ -1474,6 +1507,78 @@ function tidyDate(){
   if (v) $('e-date').value = dateText(v);
   echoDate();
   echoUntil();                 // the weeks are counted from this date
+}
+
+/* ---- the date rail --------------------------------------------- */
+/* Ten weeks, which is a term. Longer than anyone arranges a carpool for, and
+ * short enough that the far end is a few flicks away rather than a scroll
+ * through a year. A date outside it — an old event being edited, a repeat that
+ * runs past the end — stretches the rail to reach it rather than dropping off
+ * the end of it. */
+const RAIL_DAYS = 70;
+const HE_LETTER = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'];
+const HE_MONTHS = ['ינו','פבר','מרץ','אפר','מאי','יונ','יול','אוג','ספט','אוק','נוב','דצמ'];
+
+let railFrom = '', railTo = '';
+
+function buildRail(){
+  const box = $('date-rail');
+  const today = todayIso();
+  const picked = dateValue();
+  const far = shiftIso(today, RAIL_DAYS - 1);
+
+  railFrom = picked && picked < today ? picked : today;
+  railTo = picked && picked > far ? picked : far;
+
+  box.textContent = '';
+  let month = '';
+  for (let iso = railFrom; iso <= railTo; iso = shiftIso(iso, 1)){
+    /* A thin month mark where one month turns into the next, so a date three
+       flicks along is still placed. */
+    if (iso.slice(0, 7) !== month){
+      month = iso.slice(0, 7);
+      box.appendChild(el('div', 'mon', HE_MONTHS[+iso.slice(5, 7) - 1]));
+    }
+    const b = el('button', 'day' + (iso === today ? ' today' : ''));
+    b.type = 'button';
+    b.dataset.iso = iso;
+    b.setAttribute('aria-label', dayLabel(iso));
+    b.appendChild(el('b', null, HE_LETTER[fromIso(iso).getDay()]));
+    b.appendChild(el('span', null, String(+iso.slice(8, 10))));
+    b.onclick = () => pickDay(iso);
+    box.appendChild(b);
+  }
+  paintRail(true);
+}
+
+/* Marks the chosen day, and rebuilds if the date has left the rail. `jump`
+ * brings it into view — on opening the editor, or after a rebuild, but not
+ * while somebody is typing in the field, where a rail scrolling under the
+ * thumb on every keystroke would be its own kind of rude. */
+function paintRail(jump){
+  const box = $('date-rail');
+  const picked = dateValue();
+  if (picked && (!railFrom || picked < railFrom || picked > railTo)){ buildRail(); return; }
+
+  let on = null;
+  box.querySelectorAll('.day').forEach(b => {
+    const is = !!picked && b.dataset.iso === picked;
+    b.classList.toggle('on', is);
+    b.setAttribute('aria-pressed', String(is));
+    if (is) on = b;
+  });
+  if (on && jump) on.scrollIntoView({ inline:'center', block:'nearest' });
+}
+
+function pickDay(iso){
+  $('e-date').value = dateText(iso);
+  /* Chosen by hand, so the title stops moving it — the same as typing it, and
+     the same as answering the "did you mean tomorrow?" question. */
+  auto.touched.day = true;
+  $('day-ask').hidden = true;
+  echoDate();
+  echoUntil();
+  watchTitle();
 }
 
 /* ---- a repeat ------------------------------------------------- */
@@ -2670,6 +2775,9 @@ function duplicateEvent(ev){
   resetAuto(ev.title);
   say('title-read', '');
   echoDate();
+  /* The copy lands on the next time that weekday comes round, which is a week
+     along the rail from where the editor opened. */
+  buildRail();
   paintPlacePicks();
 }
 
@@ -3296,6 +3404,9 @@ function openEdit(ev){
   say('until-read', '');
   $('day-ask').hidden = true;
   echoDate();
+  /* Built fresh each time the editor opens, so "today" is today and the rail
+     opens looking at whatever date is on the form. */
+  buildRail();
   paintPlacePicks();
 
   /* Seeded with whatever the title already says, so opening an event whose
