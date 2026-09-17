@@ -1008,7 +1008,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 98;
+const APP_VERSION = 99;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1336,6 +1336,27 @@ function busy(btnId, spinId, labelId, on, text){
 
 /* ---- dates ---------------------------------------------------- */
 function todayIso(){ return iso(new Date()); }
+
+function nowHM(){
+  const d = new Date();
+  return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+
+/* An event is over once the ride home has been and gone, not at midnight.
+ * A training that finished at half past six sat on the board in full colour
+ * all evening, with its "I'll drive" buttons still offered.
+ *
+ * The return time is what decides it, because that is the last thing that
+ * happens. An event with no return time keeps its colour until the end of the
+ * day: the return leg is still on the card, it may still have nobody on it,
+ * and greying out a ride that has not happened would take away the button
+ * that fills it. */
+function isPast(ev){
+  const t = todayIso();
+  if (ev.date < t) return true;
+  if (ev.date > t) return false;
+  return !!ev.backTime && nowHM() > ev.backTime;
+}
 
 function iso(d){
   return d.getFullYear() + '-' +
@@ -2704,7 +2725,7 @@ function render(){
   const cols = [];
   for (const ev of showing){
     const col = eventCol(ev);
-    cols.push({ col: col, id: ev.id, past: ev.date < today });
+    cols.push({ col: col, id: ev.id, past: isPast(ev) });
     board.appendChild(col);
   }
   if (later){
@@ -2777,7 +2798,7 @@ function moreCol(n, openAll, first, home){
 }
 
 function eventCol(ev){
-  const past = ev.date < todayIso();
+  const past = isPast(ev);
   const col = el('article', 'col' + (past ? ' past' : ''));
   col.dataset.id = ev.id;
 
