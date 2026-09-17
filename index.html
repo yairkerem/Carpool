@@ -1008,7 +1008,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 96;
+const APP_VERSION = 97;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -2008,6 +2008,8 @@ async function paintPush(){
   btn.disabled = false;
   const sub = await currentSub();
   btn.textContent = sub ? 'כיבוי התראות' : 'הפעלת התראות';
+  /* What the button is offering, recorded where the press can read it. */
+  btn.dataset.want = sub ? 'off' : 'on';
   /* Both notices, so nobody is surprised by the second: the personal one for a
      ride you are down for, and the weekly one about rides nobody is. */
   note.textContent = sub
@@ -2070,8 +2072,31 @@ async function syncPush(reply){
   }
   if (reply.push.on && reply.push.tail !== lastPushWritten()) return;
 
-  const r = await sendRetrying({ action:'push', sub: sub.toJSON() }, null, here());
-  if (r && r.ok) rememberPush(mine);
+  return onePush(async () => {
+    /* Looked at again from inside the queue: a press or a revive may have put
+       this right while the refresh was waiting its turn, and the last thing a
+       backend under a lock needs is a write nobody is waiting for. */
+    const now = await currentSub();
+    if (!now || subTail(now) !== mine) return;
+
+    const r = await sendRetrying({ action:'push', sub: now.toJSON() }, null, here());
+    if (r && r.ok) rememberPush(mine);
+  });
+}
+
+/* One push conversation at a time.
+ *
+ * Opening settings starts a silent revive; pressing the button a moment later
+ * started a second one. Two subscribe calls, and then two writes per group
+ * racing each other through a backend that takes a lock for every write —
+ * which is how a press that should take two seconds comes back as a timeout.
+ * They now queue instead. */
+let pushQueue = Promise.resolve();
+
+function onePush(fn){
+  const run = pushQueue.then(fn, fn);
+  pushQueue = run.then(() => {}, () => {});
+  return run;
 }
 
 /* The other half of putting a lost subscription back.
@@ -2090,25 +2115,29 @@ async function syncPush(reply){
  * them on, so a parent who switched them off is left switched off. */
 async function revivePush(){
   if (!pushSupported() || !swReg) return;
+  if (!state.list.length) return;              // no group to register it with
   if (Notification.permission !== 'granted') return;
   if (!lastPushWritten()) return;              // never on, or turned off on purpose
-  if (await currentSub()) return;              // still there; nothing to revive
 
-  let sub;
-  try {
-    sub = await swReg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlB64ToBytes(VAPID_PUBLIC)
-    });
-  } catch (err) { return; }
+  return onePush(async () => {
+    if (await currentSub()) return;            // still there; nothing to revive
 
-  const trouble = await pushEverywhere(sub.toJSON());
-  if (trouble.length >= state.list.length){
-    await sub.unsubscribe();                   // no group took it: leave no trace
-    return;
-  }
-  rememberPush(subTail(sub.toJSON()));
-  paintPush();
+    let sub;
+    try {
+      sub = await swReg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlB64ToBytes(VAPID_PUBLIC)
+      });
+    } catch (err) { return; }
+
+    const trouble = await pushEverywhere(sub.toJSON());
+    if (trouble.length >= state.list.length){
+      await sub.unsubscribe();                 // no group took it: leave no trace
+      return;
+    }
+    rememberPush(subTail(sub.toJSON()));
+    paintPush();
+  });
 }
 
 /* Why a group would not take it, in words that say what to do about it.
@@ -2157,6 +2186,10 @@ function troubleText(trouble){
 
 async function togglePush(){
   const btn = $('b-push');
+  /* What the button was offering at the moment it was pressed. Read now rather
+     than after the waiting: a silent revive landing in between would otherwise
+     turn "switch these on" into "switch these off". */
+  const want = btn.dataset.want === 'off' ? 'off' : 'on';
   say('push-msg', '');
   btn.disabled = true;
 
@@ -2174,10 +2207,11 @@ async function togglePush(){
   const reach = groups > 1 ? 'מעדכן את ' + groups + ' הקבוצות במכשיר הזה…' : 'מעדכן את הקבוצה…';
 
   try {
+    await onePush(async () => {
     const existing = await currentSub();
-    if (existing){
+    if (want === 'off'){
       working('מכבה…', reach);
-      await existing.unsubscribe();
+      if (existing) await existing.unsubscribe();
       rememberPush('');
       const trouble = await pushEverywhere(null);
       say('push-msg', trouble.length
@@ -2185,13 +2219,17 @@ async function togglePush(){
         : 'ההתראות כובו במכשיר הזה.', trouble.length ? 'err' : 'ok');
     } else {
       working('מפעיל…');
-      const allowed = await Notification.requestPermission();
+      const allowed = Notification.permission === 'granted'
+        ? 'granted' : await Notification.requestPermission();
       if (allowed !== 'granted'){
         say('push-msg', 'בלי אישור הדפדפן אי אפשר לשלוח התראות.', 'err');
         return;
       }
       working('מפעיל…', reach);
-      const sub = await swReg.pushManager.subscribe({
+      /* A revive may have made one already while this was queued behind it.
+         Writing that one to the groups again is harmless — a subscription is
+         an absolute value — and asking for a second would not give one. */
+      const sub = existing || await swReg.pushManager.subscribe({
         /* Required, and meant literally: every push must become a visible
            notification or the browser takes the permission away. */
         userVisibleOnly: true,
@@ -2215,6 +2253,7 @@ async function togglePush(){
           (state.list.length > 1 ? ' ההגדרה חלה על כל הקבוצות במכשיר הזה.' : ''),
         trouble.length ? 'err' : 'ok');
     }
+    });
   } catch (err) {
     say('push-msg', 'לא הצלחנו: ' + (err && err.message ? err.message : 'שגיאה'), 'err');
   } finally {
