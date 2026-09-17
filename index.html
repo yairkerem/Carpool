@@ -1008,7 +1008,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 97;
+const APP_VERSION = 98;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -2831,15 +2831,25 @@ function eventCol(ev){
   return col;
 }
 
-/* Copy an event into a new one, dated to the next time that weekday comes
- * round — which for a training session that repeats is almost always the
- * answer, and for anything else is one tap away from it. Drivers and riders
- * are deliberately not copied: who drove last week says nothing about who is
- * free next week, and a pre-filled name is a claim nobody made. */
+/* Copy an event into a new one, a week on from the one being copied — which
+ * for a training session that repeats is almost always the answer, and for
+ * anything else is one tap away from it. Drivers and riders are deliberately
+ * not copied: who drove last week says nothing about who is free next week,
+ * and a pre-filled name is a claim nobody made.
+ *
+ * A week on from the *event*, not from today. Reading it as "the next time
+ * that weekday comes round" put a copy of today's training back on today —
+ * the same day as the thing being copied — and copying an event to the day it
+ * already happened on is the one answer nobody wants. Copying something from
+ * a month ago still lands on the next time that weekday comes round, because
+ * a week on from then is a date that has been and gone. */
 function duplicateEvent(ev){
   openEdit(null);
   $('e-title').value = ev.title;
-  $('e-date').value = dateText(nextWeekday(fromIso(ev.date).getDay(), true));
+  const aWeekOn = shiftIso(ev.date, 7);
+  $('e-date').value = dateText(aWeekOn < todayIso()
+    ? nextWeekday(fromIso(ev.date).getDay(), true)
+    : aWeekOn);
   $('e-time').value = ev.time || '';
   $('e-back').value = ev.backTime || '';
   $('e-place').value = ev.place || '';
