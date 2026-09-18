@@ -97,11 +97,18 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 .bar-title{flex:1;min-width:0;display:flex;align-items:baseline;gap:8px}
 .bar-title b{font-size:19px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .switch{
-  display:flex;align-items:baseline;gap:5px;min-width:0;
-  border:0;background:transparent;padding:0;cursor:pointer;color:inherit;
+  display:flex;align-items:center;gap:6px;min-width:0;
+  border:0;background:transparent;cursor:pointer;color:inherit;
+  /* A little room around it, pulled back by the same amount, so the group's
+     name still starts where it always did but the thing you press is a
+     shape rather than a word. */
+  padding:3px 7px;margin-inline-start:-7px;border-radius:10px;
 }
+.switch:active{background:var(--line)}
 .switch:disabled{cursor:default}
-#switch-caret{font-size:12px;color:var(--muted);flex:none}
+/* Twelve pixels of grey next to a nineteen-pixel name was punctuation, not a
+   control — you could not tell it was there. */
+#switch-caret{font-size:17px;line-height:1;font-weight:700;color:var(--brand);flex:none}
 .switcher{
   display:flex;flex-direction:column;gap:2px;
   margin:0 0 12px;padding:6px;border-radius:12px;
@@ -1052,7 +1059,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 107;
+const APP_VERSION = 108;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
