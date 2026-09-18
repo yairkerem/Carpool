@@ -1047,7 +1047,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 103;
+const APP_VERSION = 104;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -2087,14 +2087,25 @@ async function paintPush(){
      only one of them is something the app can put right by itself.
      Written to the trail once per opening, so that "it went off again" has
      something behind it afterwards. */
-  if (!sub && lastPushWritten()){
+  if (!sub){
     const granted = Notification.permission === 'granted';
-    note.textContent = granted
-      ? 'ההתראות במכשיר הזה נותקו. מחברים אותן מחדש…'
-      : 'הדפדפן ביטל את ההרשאה להתראות במכשיר הזה. זה קורה כשלא פותחים את האפליקציה זמן מה. לחצו "הפעלת התראות" כדי לאשר שוב.';
+    const had = !!lastPushWritten();
+
+    if (had){
+      note.textContent = granted
+        ? 'ההתראות במכשיר הזה נותקו. מחברים אותן מחדש…'
+        : 'הדפדפן ביטל את ההרשאה להתראות במכשיר הזה. זה קורה כשלא פותחים את האפליקציה זמן מה. הזיזו את המתג כדי לאשר שוב.';
+    }
+
+    /* One line per opening, whatever the reason, because the two facts that
+       tell the reasons apart — whether the browser still grants permission,
+       and whether this device is on record as having had notifications on —
+       are invisible afterwards. With both in the trail, "it went off again"
+       can be looked into rather than guessed at. */
     if (!pushLossNoted){
       pushLossNoted = true;
-      noteTrail({ action: 'push-gone' }, granted ? '↻' : '✗הרשאה');
+      noteTrail({ action: 'push-off' },
+        (granted ? 'הרשאה✓' : 'הרשאה✗') + (had ? ' היה־פעיל' : ' לא־היה'));
     }
   }
 }
