@@ -1047,7 +1047,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 102;
+const APP_VERSION = 103;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -2215,13 +2215,26 @@ async function revivePush(){
     } catch (err) { return; }
 
     const trouble = await pushEverywhere(sub.toJSON());
-    if (trouble.length >= state.list.length){
-      await sub.unsubscribe();                 // no group took it: leave no trace
+    /* Thrown away only when the groups actually refused it. This runs at
+       startup, which on a phone is the least likely moment for a request to
+       Apps Script to succeed — the app is opening, the network may be a
+       second behind it — and unsubscribing over a timeout would turn a
+       momentary failure into notifications that really are off. A
+       subscription no group has heard about yet is put right by syncPush on
+       any later refresh. */
+    if (refusedAll(trouble, state.list.length)){
+      await sub.unsubscribe();
       return;
     }
     rememberPush(subTail(sub.toJSON()));
     paintPush();
   });
+}
+
+/* Every group turned it down, and turned it down for a reason of its own —
+ * no such member, removed, wrong code — rather than not answering at all. */
+function refusedAll(trouble, groups){
+  return trouble.length >= groups && trouble.every(t => t.fixable);
 }
 
 /* Why a group would not take it, in words that say what to do about it.
@@ -2262,7 +2275,10 @@ async function pushEverywhere(sub){
 /* "ready, except in X: this device is not registered there" — plus, when that
  * is something the parent can put right, where to go and what to press. */
 function troubleText(trouble){
-  const said = trouble.map(t => 'בקבוצה ' + t.label + ': ' + t.why).join(' · ');
+  /* netMessage's lines end in a full stop of their own; this sentence adds its
+     own, and two in a row reads as a typo. */
+  const said = trouble.map(t => 'בקבוצה ' + t.label + ': ' +
+    String(t.why).replace(/\.\s*$/, '')).join(' · ');
   if (!trouble.some(t => t.fixable)) return said + '.';
   return said + '. ' + (trouble.length > 1 ? 'עברו לכל אחת מהן' : 'עברו לקבוצה הזאת') +
          ' בהגדרות ולחצו התחברות, ואז הפעילו התראות שוב.';
@@ -2326,10 +2342,19 @@ async function togglePush(){
       /* Only if not one group took it. A subscription that reached two out of
          three is worth keeping: those two will send reminders, and the third
          is named below so it can be looked into. Throwing it away would turn
-         one group's problem into no notifications at all. */
+         one group's problem into no notifications at all.
+         And only if they refused it. A server that did not answer has not
+         said no — the subscription is good, the groups simply have not heard
+         yet, and a refresh finishes the job. Said either way. */
       if (trouble.length >= state.list.length){
-        await sub.unsubscribe();       // do not leave one no backend got
-        say('push-msg', 'ההרשמה נכשלה. ' + troubleText(trouble), 'err');
+        if (refusedAll(trouble, state.list.length)){
+          await sub.unsubscribe();     // do not leave one no backend wants
+          say('push-msg', 'ההרשמה נכשלה. ' + troubleText(trouble), 'err');
+          return;
+        }
+        rememberPush(subTail(sub.toJSON()));
+        say('push-msg', 'ההרשמה לא הושלמה. ' + troubleText(trouble) +
+          ' ההתראות יופעלו ברענון הבא.', 'err');
         return;
       }
       say('push-msg', trouble.length
