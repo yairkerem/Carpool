@@ -429,14 +429,19 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 }
 .pick[aria-pressed="true"]{background:var(--brand-soft);color:var(--brand);border-color:var(--brand);font-weight:700}
 .pick:active{background:var(--line)}
-/* The switch, and beside it the same state in words. */
+/* The switch, and beside it the same state in words.
+ *
+ * `toggle`, not `switch`: the group switcher in the bar has worn the class
+ * `switch` since long before this existed, and naming a second thing after it
+ * squeezed the group's name in the header down to three characters and an
+ * ellipsis. A class is a name, and two things with one name is one thing. */
 .switchrow{display:flex;align-items:center;gap:10px;margin:2px 0 10px}
-.switch{
+.toggle{
   flex:0 0 auto;position:relative;width:52px;height:30px;padding:0;cursor:pointer;
   border:1px solid var(--line);border-radius:999px;background:var(--line);
   transition:background .15s ease, border-color .15s ease;
 }
-.switch .knob{
+.toggle .knob{
   position:absolute;top:2px;left:2px;width:24px;height:24px;
   border-radius:50%;background:var(--card);box-shadow:0 1px 3px rgba(0,0,0,.3);
   /* Left and right, not start and end. A switch is read the same way the
@@ -446,11 +451,11 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 }
 /* The app's own colour, not the board's "this leg is sorted" green. A switch
    is a setting, not a state of the carpool. */
-.switch[aria-checked="true"]{background:var(--brand);border-color:var(--brand)}
-.switch[aria-checked="true"] .knob{left:24px}
-.switch:disabled{opacity:.6;cursor:default}
+.toggle[aria-checked="true"]{background:var(--brand);border-color:var(--brand)}
+.toggle[aria-checked="true"] .knob{left:24px}
+.toggle:disabled{opacity:.6;cursor:default}
 @media (prefers-reduced-motion: reduce){
-  .switch, .switch .knob{transition:none}
+  .toggle, .toggle .knob{transition:none}
 }
 .pushstate{font-size:15px;font-weight:700}
 .pushstate.on{color:var(--brand)}
@@ -763,7 +768,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
          not. A switch shows the state by where it sits, and the words beside
          it say the same thing again. -->
     <div class="switchrow">
-      <button type="button" id="b-push" class="switch" role="switch" aria-checked="false">
+      <button type="button" id="b-push" class="toggle" role="switch" aria-checked="false">
         <span class="knob"></span>
       </button>
       <span class="pushstate" id="push-state"></span>
@@ -1047,7 +1052,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 106;
+const APP_VERSION = 107;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
