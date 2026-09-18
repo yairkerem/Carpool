@@ -84,6 +84,8 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
   display:flex; flex-direction:column;
   height:100vh; height:100dvh;
   padding-bottom:0;
+  /* What the group switcher hangs from. */
+  position:relative;
 }
 #list{flex:1;min-height:0;display:flex}
 
@@ -109,10 +111,18 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 /* Twelve pixels of grey next to a nineteen-pixel name was punctuation, not a
    control — you could not tell it was there. */
 #switch-caret{font-size:17px;line-height:1;font-weight:700;color:var(--brand);flex:none}
+/* A dropdown that hangs over the board rather than one that pushes it down.
+   In the flow it made the screen taller than the phone, which left the whole
+   thing scrolled — so the list opened somewhere in its own middle, with the
+   first group above the top of the screen. Over the board it always opens
+   under the bar, at its first group, whichever group is on screen. */
 .switcher{
+  position:absolute; z-index:30; inset-inline:14px;
   display:flex;flex-direction:column;gap:2px;
-  margin:0 0 12px;padding:6px;border-radius:12px;
+  padding:6px;border-radius:12px;
   background:var(--card);box-shadow:var(--shadow);
+  /* Its own scroll, for a phone in more carpools than fit the screen. */
+  max-height:min(60vh, 340px);overflow-y:auto;overscroll-behavior:contain;
 }
 .switch-item{
   border:0;background:transparent;cursor:pointer;color:inherit;
@@ -1059,7 +1069,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 108;
+const APP_VERSION = 109;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -4886,6 +4896,17 @@ $('b-settings').onclick = () => { state.joining = false; openSetup(''); };
 $('b-switch').onclick = () => {
   const box = $('switcher');
   box.hidden = !box.hidden;
+  if (box.hidden) return;
+
+  /* Hung from the bar's own bottom edge rather than a number written here, so
+     a bar that grows a line keeps the list under it. And opened at the top:
+     the group you are in is marked in the list, it does not decide where the
+     list starts. */
+  const screen = $('s-list');
+  const bar = screen.querySelector('.bar');
+  box.style.top = (bar.getBoundingClientRect().bottom -
+                   screen.getBoundingClientRect().top + 6) + 'px';
+  box.scrollTop = 0;
 };
 /* A menu that stays open after you have looked away is a menu in the way. */
 document.addEventListener('click', e => {
