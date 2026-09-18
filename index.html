@@ -437,21 +437,23 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
   transition:background .15s ease, border-color .15s ease;
 }
 .switch .knob{
-  position:absolute;top:2px;inset-inline-start:2px;width:24px;height:24px;
+  position:absolute;top:2px;left:2px;width:24px;height:24px;
   border-radius:50%;background:var(--card);box-shadow:0 1px 3px rgba(0,0,0,.3);
-  /* The knob travels by its inline start, so it moves toward the end of the
-     row in either direction — this page is RTL and a translate would send it
-     the wrong way. */
-  transition:inset-inline-start .15s ease;
+  /* Left and right, not start and end. A switch is read the same way the
+     world over — off on the left, on on the right — and a page being in
+     Hebrew does not turn that round; it only makes the switch look broken. */
+  transition:left .15s ease;
 }
-.switch[aria-checked="true"]{background:var(--done);border-color:var(--done)}
-.switch[aria-checked="true"] .knob{inset-inline-start:24px}
+/* The app's own colour, not the board's "this leg is sorted" green. A switch
+   is a setting, not a state of the carpool. */
+.switch[aria-checked="true"]{background:var(--brand);border-color:var(--brand)}
+.switch[aria-checked="true"] .knob{left:24px}
 .switch:disabled{opacity:.6;cursor:default}
 @media (prefers-reduced-motion: reduce){
   .switch, .switch .knob{transition:none}
 }
 .pushstate{font-size:15px;font-weight:700}
-.pushstate.on{color:var(--done)}
+.pushstate.on{color:var(--brand)}
 .pushstate.off{color:var(--muted)}
 .pushstate.blocked{color:var(--danger)}
 .pushstate.none{color:var(--muted)}
@@ -1045,7 +1047,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 101;
+const APP_VERSION = 102;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
