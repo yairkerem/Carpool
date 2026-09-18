@@ -87,7 +87,15 @@ async function sendOne(message, env) {
       'Content-Encoding': 'aes128gcm',
       'Content-Type': 'application/octet-stream',
       'TTL': '86400',
-      'Urgency': 'normal'
+      /* High, not normal. At normal urgency Android is entitled to hold a
+         push while the phone is idle and hand it over in a batch the next
+         time somebody picks the phone up — which is how a 19:00 reminder
+         arrived at quarter to nine, the moment the parent opened the app.
+         Every message this relay carries is about a ride at a set time, so
+         every one of them is the time-sensitive kind this header exists for,
+         and there are a couple a day, well inside what the push services
+         allow at high priority. */
+      'Urgency': 'high'
     },
     body: encrypted
   });

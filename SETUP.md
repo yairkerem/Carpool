@@ -357,6 +357,15 @@ evening's notice rather than an appointment, which is all it needs to be. The
 `remindedOn` column is what stops a second send when the trigger fires twice
 inside one hour, which it is entitled to do.
 
+**Sent at high urgency.** The relay marks every message `Urgency: high`. At
+the default, normal, Android may hold a push while the phone is idle and
+deliver it in a batch the next time someone picks the phone up — a 19:00
+reminder that arrives at quarter to nine is no reminder at all. Everything
+this relay carries is about a ride at a set time, and it is a couple of
+messages a day, well within what push services allow at high priority.
+Changing `push-worker.js` means pasting it into the worker in the Cloudflare
+dashboard and deploying; the app and the script do not carry a copy.
+
 **And once a week, to everybody.** On the evening before the week's first
 event, every subscribed device in the group is told how many legs that week
 are still short of drivers, with the first four named and how short each is:
