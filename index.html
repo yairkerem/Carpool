@@ -1047,7 +1047,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 104;
+const APP_VERSION = 105;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -2041,6 +2041,27 @@ async function currentSub(){
   catch (err) { return null; }
 }
 
+/* A registration with an *active* worker. pushManager.subscribe() refuses one
+ * that has none, and right after an update there is a moment where the new
+ * worker is still activating — which is exactly when the app starts up and
+ * tries to put a lost subscription back. Waiting for `ready` is the
+ * difference between a repair that works and one that throws where nobody
+ * can see it.
+ *
+ * Raced against a clock because `ready` on a page with no registration at all
+ * never settles, and a promise that never settles would hold the queue that
+ * every notifications action waits in. */
+function workerReady(ms){
+  return Promise.race([
+    navigator.serviceWorker.ready,
+    new Promise((resolve, reject) =>
+      setTimeout(() => reject(new Error('no-active-worker')), ms || 10000))
+  ]);
+}
+
+/* Why the last repair could not finish, for the line under the switch. */
+let reviveTrouble = '';
+
 async function paintPush(){
   const sect = $('push-sect');
   sect.hidden = !state.me;
@@ -2092,9 +2113,12 @@ async function paintPush(){
     const had = !!lastPushWritten();
 
     if (had){
-      note.textContent = granted
-        ? 'ההתראות במכשיר הזה נותקו. מחברים אותן מחדש…'
-        : 'הדפדפן ביטל את ההרשאה להתראות במכשיר הזה. זה קורה כשלא פותחים את האפליקציה זמן מה. הזיזו את המתג כדי לאשר שוב.';
+      note.textContent = !granted
+        ? 'הדפדפן ביטל את ההרשאה להתראות במכשיר הזה. זה קורה כשלא פותחים את האפליקציה זמן מה. הזיזו את המתג כדי לאשר שוב.'
+        : reviveTrouble
+          ? 'ההתראות במכשיר הזה נותקו, והחיבור מחדש לא הצליח (' + reviveTrouble +
+            '). הזיזו את המתג כדי לנסות שוב.'
+          : 'ההתראות במכשיר הזה נותקו. מחברים אותן מחדש…';
     }
 
     /* One line per opening, whatever the reason, because the two facts that
@@ -2219,11 +2243,25 @@ async function revivePush(){
 
     let sub;
     try {
-      sub = await swReg.pushManager.subscribe({
+      const reg = await workerReady();
+      swReg = reg;
+      sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlB64ToBytes(VAPID_PUBLIC)
       });
-    } catch (err) { return; }
+      reviveTrouble = '';
+    } catch (err) {
+      /* Said, not swallowed. This is the step that was failing in silence,
+         leaving the line under the switch promising a reconnection that was
+         never going to happen. */
+      /* The name where there is a useful one — InvalidStateError,
+         NotAllowedError — and the message where the name is just "Error". */
+      reviveTrouble = (err && err.name && err.name !== 'Error' ? err.name
+                     : err && err.message) || 'שגיאה';
+      noteTrail({ action: 'push-revive' }, '✗' + reviveTrouble);
+      paintPush();
+      return;
+    }
 
     const trouble = await pushEverywhere(sub.toJSON());
     /* Thrown away only when the groups actually refused it. This runs at
@@ -2341,12 +2379,17 @@ async function togglePush(){
       /* A revive may have made one already while this was queued behind it.
          Writing that one to the groups again is harmless — a subscription is
          an absolute value — and asking for a second would not give one. */
+      /* Same wait as the silent repair: a press moments after an update can
+         land while the new worker is still activating, and subscribing
+         against a registration with no active worker throws. */
+      if (!existing) swReg = await workerReady();
       const sub = existing || await swReg.pushManager.subscribe({
         /* Required, and meant literally: every push must become a visible
            notification or the browser takes the permission away. */
         userVisibleOnly: true,
         applicationServerKey: urlB64ToBytes(VAPID_PUBLIC)
       });
+      reviveTrouble = '';
       const trouble = await pushEverywhere(sub.toJSON());
       if (trouble.length < state.list.length) rememberPush(subTail(sub.toJSON()));
 
