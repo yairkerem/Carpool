@@ -1047,7 +1047,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 105;
+const APP_VERSION = 106;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -2035,9 +2035,24 @@ function isIOS(){
          (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 
+/* The registration, waited for rather than remembered.
+ *
+ * swReg is filled in when register() resolves, and everything to do with
+ * notifications used to insist on it being there already. On a page that has
+ * only just reloaded — which is every page right after an update — it is
+ * null for a moment, and in that moment currentSub() reported no
+ * subscription and the repair returned before it tried anything. The switch
+ * read off, the line promised a reconnection, and nothing was written
+ * anywhere to say why. */
+async function registration(){
+  if (swReg) return swReg;
+  swReg = await workerReady();
+  return swReg;
+}
+
 async function currentSub(){
-  if (!pushSupported() || !swReg) return null;
-  try { return await swReg.pushManager.getSubscription(); }
+  if (!pushSupported()) return null;
+  try { return await (await registration()).pushManager.getSubscription(); }
   catch (err) { return null; }
 }
 
@@ -2179,7 +2194,7 @@ function lastPushWritten(){
  * laptop share one row — and overwriting it would set the two of them fighting
  * over that row once a minute. */
 async function syncPush(reply){
-  if (!reply || !reply.push || !pushSupported() || !swReg) return;
+  if (!reply || !reply.push || !pushSupported()) return;
 
   const sub = await currentSub();
   if (!sub) return;               // nothing to offer, and never clear another's
@@ -2233,7 +2248,7 @@ function onePush(fn){
  * no prompt. Turning them off deliberately clears the record of having had
  * them on, so a parent who switched them off is left switched off. */
 async function revivePush(){
-  if (!pushSupported() || !swReg) return;
+  if (!pushSupported()) return;
   if (!state.list.length) return;              // no group to register it with
   if (Notification.permission !== 'granted') return;
   if (!lastPushWritten()) return;              // never on, or turned off on purpose
@@ -2243,8 +2258,7 @@ async function revivePush(){
 
     let sub;
     try {
-      const reg = await workerReady();
-      swReg = reg;
+      const reg = await registration();
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlB64ToBytes(VAPID_PUBLIC)
@@ -2382,8 +2396,7 @@ async function togglePush(){
       /* Same wait as the silent repair: a press moments after an update can
          land while the new worker is still activating, and subscribing
          against a registration with no active worker throws. */
-      if (!existing) swReg = await workerReady();
-      const sub = existing || await swReg.pushManager.subscribe({
+      const sub = existing || await (await registration()).pushManager.subscribe({
         /* Required, and meant literally: every push must become a visible
            notification or the browser takes the permission away. */
         userVisibleOnly: true,
