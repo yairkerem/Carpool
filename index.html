@@ -416,6 +416,7 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 .two>*{flex:1;min-width:0}
 .hint{font-size:13px;color:var(--muted);margin:6px 0 0}
 .hint.auto{color:var(--brand);font-weight:600}
+.hint.err-text{color:var(--danger);font-weight:600}
 /* A field that fills itself in has to be seen doing it, or the one time the
    guess is wrong it reads as the app losing the date. */
 @keyframes dateflash{from{background:var(--brand-soft)} to{background:var(--card)}}
@@ -639,6 +640,36 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
   <h1 id="setup-h">Carpool</h1>
   <p class="lede" id="setup-lede">לוח נסיעות משותף להורים. לכל אירוע יש נהג להלוך ונהג לחזור, וכל אחד משבץ את עצמו.</p>
+
+  <!-- An iPhone that opened the invitation in Safari. What it registers there
+       stays in Safari: the copy on the home screen keeps its own storage and
+       always opens at the app's plain address, so it would start from nothing
+       and ask for every detail by hand. The way through is to install first
+       and bring the link across, and this says so before anybody registers in
+       the wrong place. -->
+  <div id="ios-invite" class="sect ask" hidden style="margin:0 0 18px;padding:14px 15px">
+    <p class="hint" style="margin:0 0 8px;color:var(--ink)"><b>באייפון, לפני ההרשמה:</b></p>
+    <ol class="hint" style="margin:0 0 10px;padding-inline-start:18px;color:var(--ink)">
+      <li>לחצו כאן על העתקת ההזמנה.</li>
+      <li>הוסיפו את האפליקציה למסך הבית: כפתור השיתוף בספארי ← הוספה למסך הבית.</li>
+      <li>פתחו אותה ממסך הבית, והדביקו את ההזמנה בשדה שבראש המסך.</li>
+    </ol>
+    <div class="picks">
+      <button type="button" class="pick brand-pick" id="b-copy-invite">העתקת ההזמנה</button>
+    </div>
+    <p class="hint auto" id="copy-invite-said" hidden style="margin:8px 0 0"></p>
+  </div>
+
+  <!-- The invitation, pasted. A link tapped in WhatsApp fills this form by
+       itself; a link that has to travel some other way — into an iPhone's
+       home-screen app, or copied from an email — arrives here instead, and
+       one paste is the whole of it: the address, the code and the secret. -->
+  <div class="field" id="invite-field" hidden>
+    <label for="i-invite">יש לכם קישור הזמנה?</label>
+    <input id="i-invite" type="url" dir="ltr" inputmode="url" autocomplete="off"
+           autocapitalize="off" spellcheck="false" placeholder="הדביקו כאן את הקישור">
+    <p class="hint" id="invite-read">כל הפרטים של הקבוצה ימולאו ממנו. נשאר רק להוסיף שם.</p>
+  </div>
 
   <div class="field">
     <label for="i-name">השם שלי</label>
@@ -1069,7 +1100,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 109;
+const APP_VERSION = 110;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -2710,9 +2741,32 @@ function shareGroup(){
  * the way — not GitHub's, not anyone's. The app takes it out of the address
  * bar the moment it has read it. */
 function inviteUrl(){
-  const payload = JSON.stringify({ b: state.backend, g: state.groupId, s: state.secret });
+  return inviteUrlFor({ backend: state.backend, groupId: state.groupId, secret: state.secret });
+}
+
+function inviteUrlFor(inv){
+  const payload = JSON.stringify({ b: inv.backend, g: inv.groupId, s: inv.secret });
   return location.origin + location.pathname + '#j=' + b64url(payload);
 }
+
+/* The invitation inside any text: the address bar, a pasted link, or a whole
+ * WhatsApp message pasted at once — the link is found wherever it sits. */
+function parseInvite(text){
+  const m = /[#&]j=([A-Za-z0-9\-_]+)/.exec(String(text || ''));
+  if (!m) return null;
+  try {
+    const v = JSON.parse(unb64url(m[1]));
+    if (!v || !v.b || !v.g || !v.s) return null;
+    return { backend: String(v.b), groupId: String(v.g), secret: String(v.s) };
+  } catch (err) {
+    return null;
+  }
+}
+
+/* The invitation last taken from a link, kept for the iPhone note's copy
+ * button: by the time anybody presses it the link is long gone from the
+ * address bar, on purpose. */
+let lastInvite = null;
 
 /* Base64url: letters, digits, - and _ only. Chat apps decide for themselves
  * where a link stops, and a + or a / in the middle is where some of them
@@ -2754,8 +2808,68 @@ function takeInvite(invite){
   $('i-group').value = invite.groupId;
   $('i-secret').value = invite.secret;
   $('i-nick').value = '';
+  lastInvite = invite;
+  /* The link has already filled everything the paste field would. */
+  $('invite-field').hidden = true;
   say('setup-msg', 'הוזמנתם לקבוצה. נשאר רק להוסיף שם — כך שאר ההורים יזהו אתכם.', 'ok');
+
+  /* An iPhone in Safari: registering here would leave the home-screen copy
+     with nothing, so say that first, and hand over the link to take across. */
+  if (isIOS() && !installed()){
+    $('ios-invite').hidden = false;
+    $('copy-invite-said').hidden = true;
+    return;
+  }
   $('i-name').focus();
+}
+
+/* The invitation pasted into the setup screen: the address, the code and the
+ * secret filled from one paste, exactly as a tapped link would have. Filled
+ * in place rather than by reopening the form, so a name typed before the
+ * paste is still there after it. */
+function pasteInvite(){
+  const box = $('i-invite');
+  const text = box.value.trim();
+  if (!text) return;
+
+  const inv = parseInvite(text);
+  if (!inv){
+    $('invite-read').textContent = 'זה לא נראה כמו קישור הזמנה. העתיקו את כל הקישור מההודעה, כולל מה שאחרי ה-#.';
+    $('invite-read').className = 'hint err-text';
+    return;
+  }
+
+  /* Already in that group on this phone: to its board, not a second
+     membership of it. */
+  if (state.list.some(m => m.groupId === inv.groupId && m.backend === inv.backend)){
+    box.value = '';
+    takeInvite(inv);
+    return;
+  }
+
+  $('i-backend').value = inv.backend;
+  $('i-group').value = inv.groupId;
+  $('i-secret').value = inv.secret;
+  box.value = '';
+  $('invite-read').textContent = 'ההזמנה נקלטה: הכתובת, הקוד והסיסמה מולאו. נשאר להוסיף שם.';
+  $('invite-read').className = 'hint auto';
+  if (!$('i-name').value.trim()) $('i-name').focus();
+}
+
+async function copyInvite(){
+  if (!lastInvite) return;
+  const said = $('copy-invite-said');
+  said.hidden = false;
+  try {
+    await navigator.clipboard.writeText(inviteUrlFor(lastInvite));
+    said.textContent = 'ההזמנה הועתקה. עכשיו הוסיפו את האפליקציה למסך הבית, פתחו אותה משם והדביקו.';
+    said.className = 'hint auto';
+  } catch (err) {
+    /* No clipboard: the link is still in the WhatsApp message, where a long
+       press copies it just as well. */
+    said.textContent = 'ההעתקה לא הצליחה. אפשר להעתיק את הקישור מההודעה בוואטסאפ בלחיצה ארוכה עליו.';
+    said.className = 'hint err-text';
+  }
 }
 
 function shareInvite(){
@@ -2777,15 +2891,7 @@ function shareInvite(){
  * invitation: a half-read one would put a parent in no group with a message
  * about why, which is worse than the link plainly not working. */
 function readInvite(){
-  const m = /[#&]j=([A-Za-z0-9\-_]+)/.exec(location.hash || '');
-  if (!m) return null;
-  try {
-    const v = JSON.parse(unb64url(m[1]));
-    if (!v || !v.b || !v.g || !v.s) return null;
-    return { backend: String(v.b), groupId: String(v.g), secret: String(v.s) };
-  } catch (err) {
-    return null;
-  }
+  return parseInvite(location.hash || '');
 }
 
 /* An invitation can just as easily arrive at an app that is already open.
@@ -3993,6 +4099,14 @@ function openSetup(message){
   $('setup-bar').querySelector('b').textContent = state.joining ? 'הצטרפות לקבוצה' : 'הגדרות';
   $('connect-label').textContent = state.joining ? 'הצטרפות' : (connected ? SAVE_MINE : 'התחברות');
 
+  /* The paste field belongs to joining, not to editing the group on screen,
+     and the iPhone note only ever follows a link that was just opened. */
+  $('invite-field').hidden = connected;
+  $('i-invite').value = '';
+  $('invite-read').textContent = 'כל הפרטים של הקבוצה ימולאו ממנו. נשאר רק להוסיף שם.';
+  $('invite-read').className = 'hint';
+  $('ios-invite').hidden = true;
+
   $('i-nick').value = state.joining ? '' : ((here() || {}).nick || '');
   $('nick-hint').textContent = state.joining
     ? 'רק אצלכם במכשיר — הורים אחרים לא רואים אותו.'
@@ -4934,6 +5048,8 @@ $('e-back').addEventListener('blur', () => tidyTime('e-back'));
 $('e-date').addEventListener('input', echoDate);
 $('e-date').addEventListener('blur', tidyDate);
 $('e-until').addEventListener('input', echoUntil);
+$('i-invite').addEventListener('input', pasteInvite);
+$('b-copy-invite').onclick = copyInvite;
 $('e-until').addEventListener('blur', tidyUntil);
 $('b-save-one').onclick = () => saveEvent('one');
 $('b-save-after').onclick = () => saveEvent('after');
