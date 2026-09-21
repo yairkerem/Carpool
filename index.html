@@ -1100,7 +1100,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 110;
+const APP_VERSION = 111;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1213,9 +1213,13 @@ function trail(){
 
 function noteTrail(payload, how){
   if (!payload || payload.action === 'state' || payload.action === 'ping') return;
+  /* A push write that switches off is marked as such: both used to read
+     "push ✓", and a trail that cannot tell on from off cannot tell anybody
+     which one happened. */
   const what = payload.action +
     (payload.scope ? '·' + payload.scope : '') +
-    (payload.events ? '×' + payload.events.length : '');
+    (payload.events ? '×' + payload.events.length : '') +
+    (payload.action === 'push' && payload.sub === null ? '·כיבוי' : '');
   const list = [{ w: what, h: how, t: Date.now() }].concat(trail()).slice(0, TRAIL_MAX);
   try { localStorage.setItem(LS.trail, JSON.stringify(list)); } catch (e) { /* private mode */ }
 }
@@ -2250,7 +2254,11 @@ async function syncPush(reply){
   if (!reply || !reply.push || !pushSupported()) return;
 
   const sub = await currentSub();
-  if (!sub) return;               // nothing to offer, and never clear another's
+  /* Nothing to offer the group, and never clear another device's — but a
+     device that should have one and hasn't is the repair's to deal with, and
+     trying again every refresh beats trying once at startup and once when
+     settings happens to be opened. */
+  if (!sub) return revivePush('refresh');
   const mine = subTail(sub);
 
   if (reply.push.on && reply.push.tail === mine){
@@ -2300,14 +2308,32 @@ function onePush(fn){
  * asks nobody anything — permission is already given, and the browser shows
  * no prompt. Turning them off deliberately clears the record of having had
  * them on, so a parent who switched them off is left switched off. */
-async function revivePush(){
+/* One trail line per kind of outcome per opening. The repair now also runs on
+ * every refresh while the switch is off, and a line a minute would push
+ * everything useful out of a six-line list. */
+const reviveNoted = new Set();
+function noteRevive(where, mark){
+  const key = where + mark;
+  if (reviveNoted.has(key)) return;
+  reviveNoted.add(key);
+  noteTrail({ action: 'push-revive@' + where }, mark);
+}
+
+/* `where` says what woke it — start, settings or refresh — so the trail can
+ * tell a subscription lost before the app opened from one lost while it was
+ * open. Every way out of here that leaves the switch off now says which way
+ * it went: the last version could return early without a word, and a repair
+ * that does nothing and says nothing is indistinguishable from one that was
+ * never called. */
+async function revivePush(where){
   if (!pushSupported()) return;
-  if (!state.list.length) return;              // no group to register it with
-  if (Notification.permission !== 'granted') return;
-  if (!lastPushWritten()) return;              // never on, or turned off on purpose
+  where = where || '?';
 
   return onePush(async () => {
     if (await currentSub()) return;            // still there; nothing to revive
+    if (!state.list.length) return;            // no group to register it with
+    if (Notification.permission !== 'granted'){ noteRevive(where, '✗הרשאה'); return; }
+    if (!lastPushWritten()) return;            // never on, or turned off on purpose
 
     let sub;
     try {
@@ -2325,7 +2351,7 @@ async function revivePush(){
          NotAllowedError — and the message where the name is just "Error". */
       reviveTrouble = (err && err.name && err.name !== 'Error' ? err.name
                      : err && err.message) || 'שגיאה';
-      noteTrail({ action: 'push-revive' }, '✗' + reviveTrouble);
+      noteRevive(where, '✗' + reviveTrouble);
       paintPush();
       return;
     }
@@ -2340,9 +2366,11 @@ async function revivePush(){
        any later refresh. */
     if (refusedAll(trouble, state.list.length)){
       await sub.unsubscribe();
+      noteRevive(where, '✗סורב');
       return;
     }
     rememberPush(subTail(sub.toJSON()));
+    noteRevive(where, '✓');
     paintPush();
   });
 }
@@ -4127,7 +4155,7 @@ function openSetup(message){
   paintPush();
   /* Opening settings is the moment a parent would notice the switch had gone
      off by itself, so it is a good moment to have put it back. */
-  revivePush().catch(() => {});
+  revivePush('settings').catch(() => {});
 
   /* A fresh copy each time the screen opens, so backing out of it and coming
      back does not show yesterday's half-finished edit. */
@@ -4767,7 +4795,7 @@ function registerSW(){
     swReg = reg;
     /* Once the worker is in hand, check the device still has the subscription
        it is supposed to have. Silent when there is nothing to put right. */
-    revivePush().catch(() => {});
+    revivePush('start').catch(() => {});
     if (reg.waiting && navigator.serviceWorker.controller) offerUpdate();
     reg.addEventListener('updatefound', () => {
       const w = reg.installing;
