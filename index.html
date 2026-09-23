@@ -1100,7 +1100,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 112;
+const APP_VERSION = 113;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1222,6 +1222,23 @@ function noteTrail(payload, how){
     (payload.action === 'push' && payload.sub === null ? '·כיבוי' : '');
   const list = [{ w: what, h: how, t: Date.now() }].concat(trail()).slice(0, TRAIL_MAX);
   try { localStorage.setItem(LS.trail, JSON.stringify(list)); } catch (e) { /* private mode */ }
+  paintTrail();
+}
+
+/* Drawn whenever it changes, not only when settings opens.
+ *
+ * The list was painted on the way into the screen, and the switch wrote its
+ * line a moment later — so the one line somebody had come to read was always
+ * the one missing, and only turned up the next time they opened settings.
+ * That cost a day of this hunt. */
+function paintTrail(){
+  const line = $('trail-line');
+  if (!line) return;
+  const text = trailLine();
+  line.textContent = text;
+  line.hidden = !text;
+  $('health-line').textContent = healthLine();
+  $('health-line').hidden = !healthLine();
 }
 
 function trailLine(){
@@ -4223,10 +4240,7 @@ function openSetup(message){
      "the sheet says I am the admin but the app disagrees" is a real thing
      that can happen, and this line is what makes it visible instead of
      baffling. It is the id in the Parents tab, to compare against. */
-  $('health-line').textContent = healthLine();
-  $('health-line').hidden = !healthLine();
-  $('trail-line').textContent = trailLine();
-  $('trail-line').hidden = !trailLine();
+  paintTrail();
   $('ver-line').textContent = 'app v' + APP_VERSION +
     (state.backendVersion ? ' · backend v' + state.backendVersion : '') +
     (state.me ? '\n' + state.me.id + (iAmAdmin() ? ' · admin' : '') : '');
