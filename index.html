@@ -1100,7 +1100,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 111;
+const APP_VERSION = 112;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -2144,12 +2144,18 @@ async function paintPush(){
   const state_ = $('push-state');
   const says = (text, kind) => { state_.textContent = text; state_.className = 'pushstate ' + kind; };
 
+  /* Both of these used to leave before the switch-is-off line was written, so
+     the two states that say the most — the browser blocking notifications
+     outright, and a phone that cannot have them at all — were the two that
+     left no record. A switch that is off with nothing in the trail is the
+     hardest thing there is to look into afterwards. */
   if (!pushSupported() || (isIOS() && !installed())){
     btn.hidden = true;
     says('ההתראות אינן זמינות במכשיר הזה', 'none');
     note.textContent = isIOS()
       ? 'באייפון ההתראות עובדות רק אחרי הוספת האפליקציה למסך הבית: בספארי, שיתוף ← הוספה למסך הבית. אחר כך לפתוח משם ולהפעיל כאן.'
       : 'הדפדפן הזה לא תומך בהתראות.';
+    noteOff('לא־נתמך');
     return;
   }
   btn.hidden = false;
@@ -2158,7 +2164,8 @@ async function paintPush(){
     btn.disabled = true;
     btn.setAttribute('aria-checked', 'false');
     says('ההתראות חסומות בדפדפן', 'blocked');
-    note.textContent = 'הדפדפן חוסם התראות מהאתר הזה. אפשר לשנות בהגדרות האתר בדפדפן.';
+    note.textContent = 'הדפדפן חוסם התראות מהאתר הזה. באנדרואיד: הגדרות המכשיר ← אפליקציות ← הסעות ← התראות. אחר כך חוזרים לכאן ומזיזים את המתג.';
+    noteOff('חסום');
     return;
   }
 
@@ -2198,15 +2205,18 @@ async function paintPush(){
        and whether this device is on record as having had notifications on —
        are invisible afterwards. With both in the trail, "it went off again"
        can be looked into rather than guessed at. */
-    if (!pushLossNoted){
-      pushLossNoted = true;
-      noteTrail({ action: 'push-off' },
-        (granted ? 'הרשאה✓' : 'הרשאה✗') + (had ? ' היה־פעיל' : ' לא־היה'));
-    }
+    noteOff((granted ? 'הרשאה✓' : 'הרשאה✗') + (had ? ' היה־פעיל' : ' לא־היה'));
   }
 }
 
 let pushLossNoted = false;
+
+/* Written once per opening, whatever the reason the switch is off. */
+function noteOff(mark){
+  if (pushLossNoted) return;
+  pushLossNoted = true;
+  noteTrail({ action: 'push-off' }, mark);
+}
 
 /* A subscription belongs to the browser, not to a group: one device has one,
  * whichever board happens to be on screen. It was only ever written to the
