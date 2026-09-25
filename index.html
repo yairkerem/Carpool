@@ -960,13 +960,17 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
   <div class="two">
     <div class="field">
       <label for="e-time">שעת הלוך</label>
+      <!-- No placeholder, for the reason the server address has none: a grey
+           16:00 sitting in an empty field reads as a time already set, and a
+           leg whose time nobody noticed was missing is a leg people turn up
+           for at the wrong hour. The line below says what may be typed. -->
       <input id="e-time" type="text" dir="ltr" inputmode="numeric" pattern="[0-9:]*"
-             maxlength="5" autocomplete="off" placeholder="16:00">
+             maxlength="5" autocomplete="off">
     </div>
     <div class="field">
       <label for="e-back">שעת חזרה</label>
       <input id="e-back" type="text" dir="ltr" inputmode="numeric" pattern="[0-9:]*"
-             maxlength="5" autocomplete="off" placeholder="18:15">
+             maxlength="5" autocomplete="off">
     </div>
   </div>
   <p class="hint" style="margin-top:-6px">שעון 24 שעות. אפשר לכתוב 16:00, 1600 או 16.</p>
@@ -1100,7 +1104,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 113;
+const APP_VERSION = 114;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
