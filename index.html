@@ -782,10 +782,11 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     <label class="setting" for="i-remind" style="margin-top:14px">
       <span>שעת התזכורת בערב שלפני</span>
       <input id="i-remind" type="text" dir="ltr" inputmode="numeric" pattern="[0-9:]*"
-             maxlength="5" autocomplete="off" placeholder="19:00">
+             maxlength="5" autocomplete="off">
     </label>
     <p class="hint">מי שמשובץ לנסיעה מקבל התראה בערב שלפניה. השעה מקורבת —
-      ההתראה יוצאת בתוך השעה הזאת, כדי שתהיה התראה של ערב מראש.</p>
+      ההתראה יוצאת בתוך השעה הזאת, כדי שתהיה התראה של ערב מראש.
+      ריק = 19:00.</p>
 
     <div class="rowbtns" style="margin-top:10px">
       <button type="button" id="b-drivers-save">שמירת הגדרות הקבוצה</button>
@@ -1104,7 +1105,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 114;
+const APP_VERSION = 115;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
