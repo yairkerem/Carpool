@@ -1105,7 +1105,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 115;
+const APP_VERSION = 116;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -2256,16 +2256,31 @@ function subTail(sub){
   return e ? e.slice(-12) : '';
 }
 
-function rememberPush(tail){
+/* What this device last wrote, and which groups took it. The groups matter for
+ * one question, and it is the important one: a group that once held this exact
+ * subscription and now holds none did not mislay it. It threw it away, because
+ * the push service answered 404 or 410 — the subscription is dead, however
+ * healthy it still looks from inside the browser. */
+function rememberPush(tail, groups){
   try {
-    if (tail) localStorage.setItem(LS.push, tail);
+    if (tail) localStorage.setItem(LS.push, JSON.stringify({ t: tail, g: groups || [] }));
     else localStorage.removeItem(LS.push);
   } catch (e) { /* private mode */ }
 }
 
-function lastPushWritten(){
-  try { return localStorage.getItem(LS.push) || ''; } catch (e) { return ''; }
+function pushRecord(){
+  let raw = '';
+  try { raw = localStorage.getItem(LS.push) || ''; } catch (e) { return { t:'', g:[] }; }
+  if (!raw) return { t:'', g:[] };
+  /* A device that wrote its tail under an older build stored a bare string. */
+  if (raw.charAt(0) !== '{') return { t: raw, g: [] };
+  try {
+    const v = JSON.parse(raw);
+    return { t: String(v.t || ''), g: Array.isArray(v.g) ? v.g : [] };
+  } catch (e) { return { t:'', g:[] }; }
 }
+
+function lastPushWritten(){ return pushRecord().t; }
 
 /* Does this group still hold this device's subscription?
  *
@@ -2293,11 +2308,28 @@ async function syncPush(reply){
   if (!sub) return revivePush('refresh');
   const mine = subTail(sub);
 
+  const rec = pushRecord();
+  const group = (here() || {}).groupId || '';
+
   if (reply.push.on && reply.push.tail === mine){
-    rememberPush(mine);           // it is ours: remember, so a rotation is known
+    /* Ours, and the group still has it. Remembered afresh, with this group
+       among the ones holding it, so a rotation is known later. */
+    rememberPush(mine, rec.g.indexOf(group) >= 0 ? rec.g : rec.g.concat([group]));
     return;
   }
-  if (reply.push.on && reply.push.tail !== lastPushWritten()) return;
+
+  /* The group held this exact subscription and holds nothing now. Nothing
+     takes a subscription out of that sheet except the push service answering
+     404 or 410 for it: it is dead, whatever the browser still says. Writing it
+     back would restore a dead endpoint and a reminder that goes nowhere — and
+     the browser will not tell us, because getSubscription happily hands back
+     an endpoint its own push service has already thrown away. So swap it for
+     a new one. */
+  if (!reply.push.on && rec.t === mine && rec.g.indexOf(group) >= 0){
+    return renewSub();
+  }
+
+  if (reply.push.on && reply.push.tail !== rec.t) return;
 
   return onePush(async () => {
     /* Looked at again from inside the queue: a press or a revive may have put
@@ -2307,7 +2339,39 @@ async function syncPush(reply){
     if (!now || subTail(now) !== mine) return;
 
     const r = await sendRetrying({ action:'push', sub: now.toJSON() }, null, here());
-    if (r && r.ok) rememberPush(mine);
+    if (r && r.ok){
+      const g = pushRecord().g;
+      rememberPush(mine, g.indexOf(group) >= 0 ? g : g.concat([group]));
+    }
+  });
+}
+
+/* A subscription the group threw away: torn up and made again.
+ *
+ * The one failure a phone cannot see by itself. The switch says on, the
+ * browser hands out an endpoint, and every notification sent to it is
+ * discarded — for a fortnight, in this app's case, with nobody the wiser
+ * until somebody went looking at why one device out of three never got a
+ * reminder. */
+async function renewSub(){
+  return onePush(async () => {
+    const old = await currentSub();
+    if (!old) return;
+    try {
+      await old.unsubscribe();
+      const reg = await registration();
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlB64ToBytes(VAPID_PUBLIC)
+      });
+      const trouble = await pushEverywhere(sub.toJSON());
+      noteTrail({ action: 'push-renew' }, trouble.length ? '✗' + trouble[0].why : '✓');
+      paintPush();
+    } catch (err) {
+      noteTrail({ action: 'push-renew' },
+        '✗' + ((err && err.name && err.name !== 'Error' ? err.name : err && err.message) || 'שגיאה'));
+      paintPush();
+    }
   });
 }
 
@@ -2401,8 +2465,7 @@ async function revivePush(where){
       noteRevive(where, '✗סורב');
       return;
     }
-    rememberPush(subTail(sub.toJSON()));
-    noteRevive(where, '✓');
+    noteRevive(where, '✓');           // pushEverywhere recorded it and who took it
     paintPush();
   });
 }
@@ -2434,17 +2497,23 @@ async function pushEverywhere(sub){
      Retried like any other save: setting a subscription is an absolute
      value, so sending it again is harmless, and a group that happened to
      lose one answer should not be reported as refusing. */
+  const took = [];
   const results = await Promise.all(state.list
     .filter(m => m.backend && m.secret && m.groupId && m.me)
     .map(async m => {
       try {
         const r = await sendRetrying({ action:'push', sub: sub }, null, m);
-        return r.ok ? null : { label: groupLabel(m), why: pushWhy(r.error),
+        if (r.ok){ took.push(m.groupId); return null; }
+        return { label: groupLabel(m), why: pushWhy(r.error),
           fixable: /not found|removed|unauthorized/i.test(String(r.error || '')) };
       } catch (err) {
         return { label: groupLabel(m), why: netMessage(err), fixable: false };
       }
     }));
+
+  /* Recorded here rather than by each caller: this is the one place that
+     knows which groups actually took it. */
+  if (sub) rememberPush(subTail(sub), took);
   return results.filter(Boolean);
 }
 
@@ -2517,7 +2586,6 @@ async function togglePush(){
       });
       reviveTrouble = '';
       const trouble = await pushEverywhere(sub.toJSON());
-      if (trouble.length < state.list.length) rememberPush(subTail(sub.toJSON()));
 
       /* Only if not one group took it. A subscription that reached two out of
          three is worth keeping: those two will send reminders, and the third
@@ -2532,7 +2600,6 @@ async function togglePush(){
           say('push-msg', 'ההרשמה נכשלה. ' + troubleText(trouble), 'err');
           return;
         }
-        rememberPush(subTail(sub.toJSON()));
         say('push-msg', 'ההרשמה לא הושלמה. ' + troubleText(trouble) +
           ' ההתראות יופעלו ברענון הבא.', 'err');
         return;
