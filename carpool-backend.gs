@@ -29,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 27;
+const BACKEND_VERSION = 28;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -485,7 +485,7 @@ function remindAt() {
  * service answers 404 or 410 for it forever after. Left in the sheet those
  * rows are sent to every evening for nothing. Anything else — a 500, a
  * timeout — is left alone: it may well work tomorrow. */
-function pushSend(items) {
+function pushSend(items, report) {
   const cfg = relay();
   if (!cfg.url || !cfg.secret || !items.length) return 0;
 
@@ -516,8 +516,23 @@ function pushSend(items) {
   let sent = 0;
   const dead = [];
   results.forEach(function (r, i) {
-    if (r && r.status >= 200 && r.status < 300) sent++;
-    else if (r && r.gone && items[i]) dead.push(items[i].parentId);
+    const who = items[i] ? items[i].parentId : '?';
+    if (r && r.status >= 200 && r.status < 300) { sent++; }
+    else {
+      /* Logged, not swallowed. A send that fails with anything other than
+         "this subscription is gone" leaves the row in place and the parent
+         with no notification and nothing to look at — 403 means the key the
+         subscription was made with is not the key signing the message, 400 a
+         malformed request, 5xx the push service having a bad day. The number
+         is the whole diagnosis, so it belongs in the log. */
+      Logger.log('push failed for ' + who + ': status ' + (r && r.status) +
+                 (r && r.error ? ' ' + r.error : '') + (r && r.gone ? ' (gone)' : ''));
+      if (r && r.gone && items[i]) dead.push(who);
+    }
+    /* testPush asks for the detail so it can print it; the evening reminder
+       does not, and logs instead. */
+    if (report) report.push({ parentId: who, status: r && r.status,
+                              gone: !!(r && r.gone), error: r && r.error });
   });
   if (dead.length) forgetPush(dead);
   return sent;
@@ -833,12 +848,22 @@ function testPush() {
     out.push('  ' + g.id + '  ' + (g.name || '(unnamed)') + '   reminds at ' +
              remindAt() + ', devices subscribed: ' + targets.length);
     if (targets.length) {
+      /* One line per device, with the status the push service gave and the
+         member it belongs to. "sent 1 of 2" says something is wrong; only the
+         status says what, and only the id says whose phone to look at. */
+      const report = [];
       const sent = pushSend(targets.map(t => ({
         parentId: t.parentId, sub: t.sub,
         title: g.name || 'הסעות', body: 'בדיקה — ההתראות עובדות.',
         tag: 'test', url: './'
-      })));
+      })), report);
       out.push('     sent ' + sent + ' of ' + targets.length);
+      report.forEach(function (r) {
+        const p = parents().filter(x => x.id === r.parentId)[0];
+        out.push('       ' + r.parentId + '  ' + ((p && p.name) || '?') +
+                 '  → ' + (r.status === undefined ? '?' : r.status) +
+                 (r.gone ? ' (gone — cleared)' : '') + (r.error ? '  ' + r.error : ''));
+      });
     }
   });
   CURRENT = null;
