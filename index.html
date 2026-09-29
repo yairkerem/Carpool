@@ -1125,7 +1125,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 120;
+const APP_VERSION = 121;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1280,7 +1280,16 @@ async function ensurePushWritten(){
   const sub = await currentSub();
   if (!sub) return;
   const mine = subTail(sub);
-  if (pushRecord().t === mine) return;        // already written, and to whom
+  const rec = pushRecord();
+
+  /* Not "has this subscription been written" but "has every group been told".
+     A device in two carpools had the right subscription recorded against the
+     first group and nothing against the second, and because the tail matched,
+     this said there was nothing to do — for a group that had never heard of
+     it and was sending no reminders at all. */
+  const owed = state.list.filter(m => m.me && m.backend && m.secret && m.groupId)
+    .filter(m => rec.t !== mine || rec.g.indexOf(m.groupId) < 0);
+  if (!owed.length) return;
 
   return onePush(async () => {
     const now = await currentSub();
