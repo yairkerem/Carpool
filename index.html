@@ -1125,7 +1125,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 118;
+const APP_VERSION = 119;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1264,6 +1264,30 @@ function paintTrail(){
   line.hidden = !text;
   $('health-line').textContent = healthLine();
   $('health-line').hidden = !healthLine();
+}
+
+/* A subscription the groups have not been told about.
+ *
+ * The switch can come on and the write that follows it can fail — a slow
+ * backend, a phone a second behind the network — and then the device holds a
+ * subscription nobody is sending to. The refresh cycle repairs that, but it
+ * does not run while settings is open, which is exactly where somebody sits
+ * after turning notifications on, watching a switch that says yes over a
+ * group that has never heard of it. */
+async function ensurePushWritten(){
+  if (!pushSupported() || !state.list.length) return;
+
+  const sub = await currentSub();
+  if (!sub) return;
+  const mine = subTail(sub);
+  if (pushRecord().t === mine) return;        // already written, and to whom
+
+  return onePush(async () => {
+    const now = await currentSub();
+    if (!now || subTail(now) !== mine) return;
+    await pushEverywhere(now.toJSON());       // records the tail and who took it
+    paintPush();
+  });
 }
 
 /* Notifications this device had and has lost, said on the board.
@@ -4369,6 +4393,8 @@ function openSetup(message){
   /* Opening settings is the moment a parent would notice the switch had gone
      off by itself, so it is a good moment to have put it back. */
   revivePush('settings').catch(() => {});
+  /* And the other way round: a subscription in hand that no group has. */
+  ensurePushWritten().catch(() => {});
 
   /* A fresh copy each time the screen opens, so backing out of it and coming
      back does not show yesterday's half-finished edit. */
