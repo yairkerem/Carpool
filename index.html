@@ -916,6 +916,15 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     <span>יש גרסה חדשה של האפליקציה.</span>
     <button id="b-update">עדכון</button>
   </div>
+  <!-- Notifications that were on and are not any more. Said on the board,
+       because a parent who is not expecting anything to be wrong does not open
+       settings, and the whole failure is silence: no reminder arrives and
+       nothing anywhere says why. Once a day, and only for a device that had
+       them. -->
+  <div id="push-bar" class="banner" hidden>
+    <span>ההתראות במכשיר הזה כבויות.</span>
+    <button id="b-push-fix">הפעלה</button>
+  </div>
   <div id="net-bar" class="banner" hidden></div>
 
   <div id="list"></div>
@@ -1116,7 +1125,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 117;
+const APP_VERSION = 118;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1257,6 +1266,38 @@ function paintTrail(){
   $('health-line').hidden = !healthLine();
 }
 
+/* Notifications this device had and has lost, said on the board.
+ *
+ * The repair cannot help when the browser has taken the permission back: it
+ * must not ask on a parent's behalf, so it writes ✗הרשאה and stops. Until
+ * somebody opens settings, nothing on screen says the evening reminders have
+ * stopped — and a reminder that does not arrive looks exactly like an evening
+ * with nothing to drive. So the board says it, once a day. */
+async function paintPushBar(){
+  const bar = $('push-bar');
+  if (!bar) return;
+
+  const off = pushSupported() && !!lastPushWritten() && !(await currentSub()) &&
+              (typeof Notification === 'undefined' || Notification.permission !== 'denied');
+  let saidToday = '';
+  try { saidToday = localStorage.getItem(LS.pushsaid) || ''; } catch (e) { /* private mode */ }
+
+  bar.hidden = !off || saidToday === todayIso();
+  if (bar.hidden) return;
+  try { localStorage.setItem(LS.pushsaid, todayIso()); } catch (e) { /* private mode */ }
+}
+
+/* The press is the gesture the browser needs before it will ask, so the
+ * permission question comes up from here — settings first, so the answer
+ * lands on a screen that explains it. */
+async function fixPushFromBar(){
+  $('push-bar').hidden = true;
+  openSetup('');
+  $('b-push').dataset.want = 'on';
+  await togglePush();
+  $('push-sect').scrollIntoView({ block:'center' });
+}
+
 /* The whole diagnostic block as one piece of text, for copying or sharing.
  *
  * Everything anybody has had to ask for by hand over the last fortnight —
@@ -1350,6 +1391,9 @@ const LS = {
      into the list, and then left alone — a phone that downgrades to an older
      build should still find the group it had. */
   backend:'cp.backend', secret:'cp.secret', me:'cp.me', board:'cp.board',
+  /* The day the board last said notifications had gone off, so it says it
+     once a day rather than every time the board is drawn. */
+  pushsaid:'cp.pushsaid',
   /* The last few writes and the scope each carried — settings shows them. */
   trail:'cp.trail',
   /* The tail of the push endpoint this device last wrote to a group, which is
@@ -2137,8 +2181,9 @@ async function refresh(quiet){
     render();
 
     /* Not awaited, and silent unless it has something to put right: the board
-       is already drawn, and this only matters by the evening. */
-    syncPush(r).catch(() => {});
+       is already drawn, and this only matters by the evening. The bar comes
+       after it, so a repair that works says nothing at all. */
+    syncPush(r).then(paintPushBar, paintPushBar).catch(() => {});
   } catch (err) {
     state.offline = true;
     if (!quiet) banner(netMessage(err) + ' מוצג המידע האחרון שנטען.');
@@ -5197,6 +5242,7 @@ $('i-nick').addEventListener('input', () => {
   paintSwitcher();
 });
 $('b-check-update').onclick = checkUpdate;
+$('b-push-fix').onclick = fixPushFromBar;
 $('b-copy-log').onclick = copyLog;
 $('b-share-log').onclick = shareLog;
 $('b-claim-new').onclick = () => registerMe({ force: true });
