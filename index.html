@@ -871,6 +871,17 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
          nothing to point at otherwise, and neither has anybody trying to
          work out what happened afterwards. -->
     <p class="hint mono" id="trail-line" hidden></p>
+    <!-- Reading these lines off a phone and typing them into a message is how
+         a detail gets dropped, and the dropped detail is always the one that
+         mattered. Both buttons gather the same block: versions, who this
+         device is, what the notifications actually are, the counters and the
+         last few actions. No secrets: the group's password is not in it, and
+         a subscription is named by its last few characters. -->
+    <div class="rowbtns" style="margin-top:10px">
+      <button type="button" id="b-copy-log">העתקת היומן</button>
+      <button type="button" id="b-share-log">שיתוף היומן</button>
+    </div>
+    <p class="hint" id="log-said" hidden></p>
     <div class="rowbtns" style="margin-top:10px">
       <button type="button" id="b-check-update">
         <span id="update-spin" class="spin" hidden></span>
@@ -1105,7 +1116,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 116;
+const APP_VERSION = 117;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1244,6 +1255,64 @@ function paintTrail(){
   line.hidden = !text;
   $('health-line').textContent = healthLine();
   $('health-line').hidden = !healthLine();
+}
+
+/* The whole diagnostic block as one piece of text, for copying or sharing.
+ *
+ * Everything anybody has had to ask for by hand over the last fortnight —
+ * which build, which backend, whether the browser still grants permission,
+ * whether this device holds a subscription and whether the group has the same
+ * one, how the last few writes went. Nothing secret: the group's password is
+ * never in it, and a subscription is named by its last twelve characters,
+ * which identify it and cannot be sent to. */
+async function logText(){
+  const sub = await currentSub();
+  const rec = pushRecord();
+  const perm = (typeof Notification !== 'undefined' && Notification.permission) || '?';
+
+  return [
+    'Carpool app v' + APP_VERSION +
+      (state.backendVersion ? ' · backend v' + state.backendVersion : ''),
+    'group ' + (state.groupId || '—') + ' · me ' + ((state.me && state.me.id) || '—') +
+      (iAmAdmin() ? ' · admin' : '') + ' · groups on device ' + state.list.length,
+    'push: ' + (sub ? 'yes ' + subTail(sub) : 'none') + ' · permission ' + perm +
+      ' · last written ' + (rec.t || '—') + (rec.g.length ? ' → ' + rec.g.join(',') : ''),
+    'installed ' + (installed() ? 'yes' : 'no') + ' · iOS ' + (isIOS() ? 'yes' : 'no') +
+      ' · supported ' + (pushSupported() ? 'yes' : 'no'),
+    healthLine() || '—',
+    '— ' + new Date().toLocaleString('he-IL') + ' —',
+    trailLine() || '(אין פעולות אחרונות)'
+  ].join('\n');
+}
+
+async function copyLog(){
+  const said = $('log-said');
+  said.hidden = false;
+  try {
+    await navigator.clipboard.writeText(await logText());
+    said.textContent = 'היומן הועתק. אפשר להדביק אותו בהודעה.';
+    said.className = 'hint auto';
+  } catch (err) {
+    said.textContent = 'ההעתקה לא הצליחה. אפשר לצלם את המסך הזה במקום.';
+    said.className = 'hint err-text';
+  }
+}
+
+async function shareLog(){
+  const said = $('log-said');
+  const text = await logText();
+  if (!navigator.share) return copyLog();       // no share sheet: the clipboard will do
+  try {
+    await navigator.share({ title: 'יומן הסעות', text: text });
+    said.hidden = false;
+    said.textContent = 'היומן נשלח.';
+    said.className = 'hint auto';
+  } catch (err) {
+    /* A share sheet that was opened and dismissed is not a failure worth
+       reporting; anything else falls back to copying. */
+    if (err && err.name === 'AbortError') return;
+    return copyLog();
+  }
 }
 
 function trailLine(){
@@ -5128,6 +5197,8 @@ $('i-nick').addEventListener('input', () => {
   paintSwitcher();
 });
 $('b-check-update').onclick = checkUpdate;
+$('b-copy-log').onclick = copyLog;
+$('b-share-log').onclick = shareLog;
 $('b-claim-new').onclick = () => registerMe({ force: true });
 
 $('b-settings').onclick = () => { state.joining = false; openSetup(''); };
