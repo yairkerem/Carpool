@@ -1133,7 +1133,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 122;
+const APP_VERSION = 123;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1189,6 +1189,9 @@ async function sendRetrying(payload, onRetry, as){
       const r = await api(payload, TRY_MS[Math.min(attempt, TRY_MS.length - 1)], null, as);
       noteHealth(attempt ? 'recovered' : 'clean', r && r.ms);
       noteTrail(payload, r && r.ok ? '✓' : '✗');
+      /* Every write that lands is counted, so a board refresh can tell whether
+         the answer it is holding was true before or after it. */
+      if (r && r.ok) writeStamp++;
       return r;
     } catch (err) {
       spent += Date.now() - began;
@@ -2151,6 +2154,13 @@ let refreshing = false;
 let credEpoch = 0;
 function credsChanged(){ credEpoch++; }
 
+/* Writes that have landed. A board reply is a photograph of the group taken
+ * when the request set off, and a write that lands while it is in the post
+ * makes it a photograph of the past — put on screen, it takes a chip that was
+ * just stood down and puts it straight back. Which is what "I cannot remove
+ * myself from this drive" looks like from the other side: tap, gone, back. */
+let writeStamp = 0;
+
 async function refresh(quiet){
   if (refreshing) return;
   /* Nothing to ask with. A request carrying no secret can only come back
@@ -2161,6 +2171,7 @@ async function refresh(quiet){
   $('b-refresh').classList.add('spinning');
   const epoch = credEpoch;
   const stamp = bannerStamp;
+  const wrote = writeStamp;
   try {
     const r = await api({ action:'state' }, 30000)   /* no retry here: a stale board is a
          readable board, and the next poll is a minute away */;
@@ -2188,6 +2199,16 @@ async function refresh(quiet){
       mem.name = r.group;
       persist();
     }
+    /* Something was written while this reply was on its way, so the reply is
+       older than what is on screen. Dropped whole rather than merged: the
+       board already shows the newer truth, and guessing which half of a
+       stale photograph is still good is how a chip comes back from the dead.
+       Asked again straight after, which is when the write is in the answer. */
+    if (writeStamp !== wrote){
+      setTimeout(() => refresh(true), 1200);
+      return;
+    }
+
     state.parents = r.parents || [];
     state.events = r.events || [];
     /* Every reply carries it, and settings should not have to be re-saved
