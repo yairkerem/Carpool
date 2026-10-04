@@ -319,6 +319,14 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
   flex:0 0 auto;margin-block:auto;
 }
 .call{text-decoration:none;font-size:15px;line-height:1;padding:2px}
+/* The admin's way to take a driver off a leg. Quiet by default — it is not an
+   action anybody should reach for by accident — and in the warning colour
+   only while it is being pressed. */
+.unclaim{
+  border:0;background:transparent;cursor:pointer;color:var(--muted);
+  font-size:14px;line-height:1;padding:3px 5px;border-radius:7px;
+}
+.unclaim:active{background:var(--warn-soft);color:var(--warn)}
 .chip{
   display:inline-flex;align-items:center;gap:5px;flex:none;
   padding:3px 10px;border-radius:7px;font-size:13px;font-weight:600;
@@ -1125,7 +1133,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 121;
+const APP_VERSION = 122;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -3501,6 +3509,23 @@ function legBlock(ev, leg, past){
         call.setAttribute('aria-label', 'התקשרות ל' + p.name);
         line.appendChild(call);
       }
+      /* The admin can take anybody off a leg. Standing down is otherwise
+         yours alone to do, which is right — nobody should be able to drop
+         somebody else's offer to drive — but it leaves no way out of a chip
+         that cannot stand itself down: a parent registered twice is on the
+         leg under the row their phone no longer uses, and from that phone the
+         leg reads as somebody else's. */
+      if (!past && !isMe(id) && iAmAdmin()){
+        const off = el('button', 'unclaim', '✕');
+        off.type = 'button';
+        off.title = 'הסרה מהנסיעה';
+        off.setAttribute('aria-label', 'הסרת ' + (p.name || 'הורה') + ' מהנסיעה');
+        off.onclick = () => {
+          if (!confirm('להסיר את ' + (p.name || 'ההורה') + ' מהנסיעה הזאת?')) return;
+          legAction(off, ev, leg, 'release', id);
+        };
+        line.appendChild(off);
+      }
       who.appendChild(line);
     }
   }
@@ -3529,17 +3554,20 @@ function legBlock(ev, leg, past){
 /* Applied locally first so the tap feels instant, then confirmed. A refusal —
    somebody else claimed it a second earlier — reloads the board and says so,
    rather than leaving a screen that quietly disagrees with the sheet. */
-async function legAction(btn, ev, leg, action){
+/* `who` is the driver being added or taken off, and it is the parent pressing
+ * unless an admin is taking somebody else off. */
+async function legAction(btn, ev, leg, action, who){
   if (!state.me) return;
+  const id = who || state.me.id;
   const isTo = leg === 'to';
   const driverKey = isTo ? 'toDriver' : 'backDriver';
   const before = (ev[driverKey] || []).slice();
 
   if (action === 'claim'){
     const on = ev[driverKey] || [];
-    if (on.indexOf(state.me.id) < 0) ev[driverKey] = on.concat([state.me.id]);
+    if (on.indexOf(id) < 0) ev[driverKey] = on.concat([id]);
   } else {
-    ev[driverKey] = (ev[driverKey] || []).filter(p => p !== state.me.id);
+    ev[driverKey] = (ev[driverKey] || []).filter(p => p !== id);
   }
   render();
 
@@ -3550,7 +3578,7 @@ async function legAction(btn, ev, leg, action){
        says what the answer should be, not how to change it, so repeating it
        cannot go wrong. */
     const r = await sendRetrying(
-      { action: action, id: ev.id, leg: leg, parentId: state.me.id },
+      { action: action, id: ev.id, leg: leg, parentId: id },
       () => banner('השרת לא ענה. מנסה שוב…'));
 
     if (!r.ok){
