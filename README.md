@@ -40,6 +40,13 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   away rather than eleven months back. Under the date the field names the day
   it landed on — *יום שלישי · 15/09* — which is the one thing the calendar
   picker was good for.
+- **A whole message at once.** The coach sends the term in one WhatsApp
+  message; paste it into **⎙ הדבקה** on the board and every line that carries a
+  day or a date becomes an event. A line with times but no name takes the name
+  above it, and a heading with a date dates the lines beneath it, because that
+  is how those messages are written. Nothing is added without being shown
+  first: each one appears as a row to tick or leave, anything already on the
+  board comes unticked and says so, and the lot is written in one request.
 - **One line is enough.** Type the event the way you would say it in the group
   — *אימון כדורגל יום שלישי 16:30-18:15 במגרש הדשא* — and the day, both times
   and the place fill themselves in. Then they come out of the title, so the

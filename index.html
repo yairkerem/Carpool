@@ -403,6 +403,29 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
   box-shadow:0 6px 20px rgba(13,148,136,.4);
 }
 
+/* The second button on the board. Quieter than the one that adds an event by
+   hand, because that is still the common way in. */
+.fab-second{
+  inset-inline-end:auto;inset-inline-start:18px;
+  background:var(--card);color:var(--brand);font-size:15px;padding:12px 16px;
+  box-shadow:var(--shadow);border:1px solid var(--line);
+}
+
+/* What the parser made of a pasted message, one row per event it found. */
+.found{display:flex;flex-direction:column;gap:8px;margin:14px 0 0}
+.found-row{
+  display:flex;align-items:flex-start;gap:10px;
+  background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:11px 13px;box-shadow:var(--shadow);
+}
+.found-row.dup{opacity:.7}
+.found-row input{flex:none;width:20px;height:20px;margin-top:2px;accent-color:var(--brand)}
+.found-row .what{flex:1;min-width:0}
+.found-row .ttl{font-size:15px;font-weight:700;color:var(--ink);overflow-wrap:anywhere}
+.found-row .when{font-size:14px;font-weight:600;color:var(--ink);margin-top:3px}
+.found-row .where{font-size:13px;color:var(--muted);margin-top:2px;overflow-wrap:anywhere}
+.found-row .note{font-size:12px;color:var(--warn);font-weight:700;margin-top:3px}
+
 /* ---------- forms ---------- */
 .lede{color:var(--muted);margin:6px 0 20px;font-size:15px}
 .field{margin-bottom:16px}
@@ -938,6 +961,40 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
   <div id="list"></div>
 
   <button id="b-new" class="fab">+ אירוע</button>
+  <!-- The coach sends the term's sessions in one message. Typing them in one
+       at a time is the work this app exists to remove. -->
+  <button id="b-paste" class="fab fab-second" aria-label="הדבקת הודעה עם אירועים">⎙ הדבקה</button>
+</section>
+
+
+<!-- ====================== a message full of events ======================
+     Reads a pasted message line by line with the same parser the title field
+     uses, shows what it understood, and adds the ones that are ticked. It
+     never adds anything without being shown first: a parser that is wrong in
+     silence costs more than one that asks. -->
+<section id="s-paste" class="screen">
+  <header class="bar">
+    <button id="b-paste-back" class="iconbtn" aria-label="חזרה ללוח">→</button>
+    <div class="bar-title"><b>הדבקת הודעה</b></div>
+  </header>
+
+  <div class="field">
+    <label for="paste-text">ההודעה</label>
+    <textarea id="paste-text" dir="auto" rows="7"></textarea>
+    <p class="hint">כל שורה שיש בה יום או תאריך הופכת לאירוע. שורה בלי שם לוקחת את
+      השם מהשורה שמעליה, ושורת כותרת עם תאריך נותנת את התאריך לשורות שאחריה.</p>
+  </div>
+
+  <div class="actions">
+    <button id="b-paste-read" class="btn">קריאת ההודעה</button>
+  </div>
+
+  <div id="paste-msg" class="msg" hidden></div>
+  <div id="paste-list"></div>
+
+  <div class="actions" id="paste-save-row" hidden>
+    <button id="b-paste-save" class="btn"></button>
+  </div>
 </section>
 
 
@@ -1133,7 +1190,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 123;
+const APP_VERSION = 124;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1520,7 +1577,7 @@ function show(name){
  * The counting is done in show() rather than at each of the dozen places that
  * change screen: the one that gets forgotten is the one that leaves the stack
  * a level out, and from then on every back press is off by one. */
-const SCREEN_DEPTH = { list:0, setup:1, edit:1, newgroup:2 };
+const SCREEN_DEPTH = { list:0, setup:1, edit:1, paste:1, newgroup:2 };
 
 /* On a phone that has not joined anything, setup is the whole app rather than
  * a screen on top of it — so there it is the root, and back leaves, which is
@@ -1564,6 +1621,7 @@ window.addEventListener('popstate', function (){
 function backOut(){
   if ($('s-newgroup').classList.contains('active')){ $('b-ng-back').click(); return; }
   if ($('s-edit').classList.contains('active')){ $('b-edit-back').click(); return; }
+  if ($('s-paste').classList.contains('active')){ $('b-paste-back').click(); return; }
   if ($('s-setup').classList.contains('active') && !$('setup-bar').hidden){
     $('b-setup-back').click();
     return;
@@ -4105,6 +4163,191 @@ function tidyTitle(){
   if (clean && clean !== box.value) box.value = clean;
 }
 
+/* ---- a message full of events ---------------------------------- */
+/* The coach's message, read line by line.
+ *
+ * Each line goes through the same parser the title field uses, so a line
+ * reads here exactly as it would if it had been typed into the editor — one
+ * set of rules, learned once. What a line does not say, it inherits from the
+ * message around it: a line with times but no name takes the name above it,
+ * and a line with times but no day takes the day from the heading it sits
+ * under. That is how these messages are actually written.
+ *
+ * Nothing is added without being shown. A parser that is wrong out loud costs
+ * a tick; a parser that is wrong in silence costs a child standing in a car
+ * park. */
+function readMessage(text){
+  const lines = String(text || '').split(/\r?\n|[•;]/)
+    .map(s => s.replace(/^\s*\d+[.)]\s*/, '').trim())
+    .filter(Boolean);
+
+  const found = [];
+  let name = '';          // the last name a line gave us
+  let when = '';          // the last date a heading gave us
+
+  for (const line of lines){
+    const p = parseTitle(line);
+    const hasTime = !!(p.time || p.back);
+    const date = p.day ? p.day.iso : '';
+
+    /* No clock and no day: a heading. It names what follows, and if it
+       carries a date, dates what follows too. */
+    if (!hasTime && !date){
+      if (p.clean) name = headingName(p.clean);
+      continue;
+    }
+    if (!hasTime && date && !p.clean){
+      when = date;
+      continue;
+    }
+
+    const title = p.clean || name || 'אירוע';
+    if (p.clean) name = headingName(p.clean);
+    if (date) when = date;
+
+    found.push({
+      title: title,
+      date: date || when || '',
+      time: p.time,
+      backTime: p.back,
+      place: p.place,
+      line: line
+    });
+  }
+  return found;
+}
+
+/* A heading is written as a heading — "אימונים לשבוע הבא:" — and the colon
+ * belongs to the message, not to the name of a training session. */
+function headingName(s){
+  return String(s).replace(/[\s:\-–—]+$/, '').trim();
+}
+
+/* Already on the board: same name, same day. Ticking it again would put the
+ * same training on the board twice, which is what a parent pasting the same
+ * message a second time would otherwise get. */
+function alreadyOnBoard(ev){
+  return state.events.some(e => e.date === ev.date &&
+    cleanish(e.title) === cleanish(ev.title));
+}
+
+function cleanish(s){
+  return String(s || '').normalize('NFC').replace(/[‎‏؜​﻿]/g, '')
+    .replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+let foundEvents = [];
+
+function openPaste(){
+  $('paste-text').value = '';
+  $('paste-list').textContent = '';
+  $('paste-save-row').hidden = true;
+  say('paste-msg', '');
+  foundEvents = [];
+  show('paste');
+  $('paste-text').focus();
+}
+
+function readPaste(){
+  const text = $('paste-text').value;
+  foundEvents = readMessage(text).filter(e => e.date);
+
+  $('paste-list').textContent = '';
+  if (!foundEvents.length){
+    say('paste-msg', 'לא נמצאו אירועים בהודעה. כל אירוע צריך יום או תאריך — למשל "יום שלישי 16:30-18:15 במגרש".', 'err');
+    $('paste-save-row').hidden = true;
+    return;
+  }
+
+  say('paste-msg', '');
+  const box = el('div', 'found');
+  foundEvents.forEach(function (ev, i){
+    const dup = alreadyOnBoard(ev);
+    ev.take = !dup;
+
+    const row = el('div', 'found-row' + (dup ? ' dup' : ''));
+    const tick = document.createElement('input');
+    tick.type = 'checkbox';
+    tick.checked = ev.take;
+    tick.id = 'found-' + i;
+    tick.onchange = () => { ev.take = tick.checked; paintPasteButton(); };
+    row.appendChild(tick);
+
+    const what = el('label', 'what');
+    what.setAttribute('for', tick.id);
+    what.appendChild(el('div', 'ttl', ev.title));
+    what.appendChild(el('div', 'when', dayLabel(ev.date) +
+      (ev.time ? ' · ' + ev.time : '') + (ev.backTime ? '–' + ev.backTime : '')));
+    if (ev.place) what.appendChild(el('div', 'where', '📍 ' + ev.place));
+    if (dup) what.appendChild(el('div', 'note', 'כבר קיים בלוח'));
+    row.appendChild(what);
+
+    box.appendChild(row);
+  });
+  $('paste-list').appendChild(box);
+  $('paste-save-row').hidden = false;
+  paintPasteButton();
+}
+
+function paintPasteButton(){
+  const n = foundEvents.filter(e => e.take).length;
+  const b = $('b-paste-save');
+  b.disabled = !n;
+  b.textContent = !n ? 'לא נבחרו אירועים'
+                : n === 1 ? 'הוספת אירוע אחד' : 'הוספת ' + n + ' אירועים';
+}
+
+/* On the board first, like every other save here, and all of them in one
+ * request: a message with eight sessions in it is eight chances for this
+ * backend to lose an answer if they go one at a time. */
+async function savePaste(){
+  const take = foundEvents.filter(e => e.take);
+  if (!take.length) return;
+
+  const planned = take.map(e => ({
+    id: newId(),
+    title: e.title,
+    date: e.date,
+    time: e.time || '',
+    place: e.place || '',
+    backTime: e.backTime || '',
+    note: '',
+    createdBy: state.me ? state.me.id : '',
+    series: ''
+  }));
+
+  const before = state.events.slice();
+  for (const ev of planned) showEventNow(ev);
+  focusEvent = planned[0].id;
+  saveBoard();
+  show('list');
+  render();
+
+  const said = planned.length === 1 ? 'האירוע נשמר.' : 'נשמרו ' + planned.length + ' אירועים.';
+  banner(said);
+
+  const putBack = why => {
+    state.events = before;
+    focusEvent = null;
+    saveBoard();
+    render();
+    banner(why);
+  };
+
+  try {
+    const r = await sendRetrying({ action:'series', events: planned },
+      () => banner('השרת לא ענה. מנסה שוב…'));
+    if (!r.ok){
+      if (rejected(r.error)) return;
+      putBack('השמירה נכשלה: ' + (r.error || 'שגיאה'));
+      return;
+    }
+    refresh(true).then(() => banner(said), () => banner(said));
+  } catch (err) {
+    putBack(netMessage(err) + ' האירועים לא נשמרו.');
+  }
+}
+
 /* ---- the editor ----------------------------------------------- */
 function openEdit(ev){
   state.editing = ev || null;
@@ -5362,6 +5605,10 @@ document.addEventListener('click', e => {
 });
 $('b-refresh').onclick = () => refresh();
 $('b-new').onclick = () => openEdit(null);
+$('b-paste').onclick = openPaste;
+$('b-paste-back').onclick = () => { show('list'); render(); };
+$('b-paste-read').onclick = readPaste;
+$('b-paste-save').onclick = savePaste;
 $('b-update').onclick = applyUpdate;
 
 $('b-edit-back').onclick = () => { show('list'); render(); };
