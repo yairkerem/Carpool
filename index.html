@@ -431,6 +431,12 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 .found-row .when{font-size:14px;font-weight:600;color:var(--ink);margin-top:3px}
 .found-row .where{font-size:13px;color:var(--muted);margin-top:2px;overflow-wrap:anywhere}
 .found-row .note{font-size:12px;color:var(--warn);font-weight:700;margin-top:3px}
+/* Quiet: it is an offer, not the thing the screen is for. */
+.found-row .mergebtn{
+  margin-top:8px;font-size:12px;font-weight:700;color:var(--brand);
+  background:transparent;border:1px solid var(--line);border-radius:999px;
+  padding:5px 11px;
+}
 
 /* ---------- forms ---------- */
 .lede{color:var(--muted);margin:6px 0 20px;font-size:15px}
@@ -988,7 +994,8 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     <label for="paste-text">ההודעה</label>
     <textarea id="paste-text" dir="auto" rows="7"></textarea>
     <p class="hint">כל שורה שיש בה יום או תאריך הופכת לאירוע. שורה בלי שם לוקחת את
-      השם מהשורה שמעליה, ושורת כותרת עם תאריך נותנת את התאריך לשורות שאחריה.</p>
+      השם מהשורה שמעליה, ושורת כותרת עם תאריך נותנת את התאריך לשורות שאחריה.
+      אפשר לתקן כל שם, ושתי שורות באותו יום — יציאה וחזרה — אפשר לאחד לאירוע אחד.</p>
   </div>
 
   <div class="actions">
@@ -1200,7 +1207,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 125;
+const APP_VERSION = 126;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -3757,6 +3764,8 @@ const DOW_WORDS = {
 };
 const YOM = ['יום','ביום','ליום','ויום','מיום','וביום','שביום'];
 const SHABBAT = ['שבת','בשבת','לשבת','ושבת','משבת','השבת','ובשבת'];
+/* What turns שבת from a day into a blessing. */
+const BLESSING = ['שלום','מבורכת','מבורך','שמחה','שמח','נעימה','טובה'];
 const RELATIVE = { 'היום':0, 'מחר':1, 'מחרתיים':2 };
 
 /* The next occurrence counts today: somebody adding "אימון יום שני" on a
@@ -3843,6 +3852,11 @@ function findDayWord(text){
                start: t.start, end: t.end };
     }
     if (SHABBAT.indexOf(t.w) >= 0){
+      /* "שבת שלום" is how half the messages in the group open, and it is a
+         greeting, not a ride on Saturday. The blessing after the word is what
+         says so — the loop carries on rather than giving up, because
+         "שבת שלום, ביום ראשון 16:00" still names a day further along. */
+      if (tk[i + 1] && BLESSING.indexOf(tk[i + 1].w) >= 0) continue;
       return { iso: nextWeekday(6), label: 'שבת', bare: true,
                start: t.start, end: t.end };
     }
@@ -4275,6 +4289,10 @@ function readMessage(text){
   let when = '';          // the last date a heading gave us
 
   read.forEach(function (it, i){
+    /* A message opens with hello and closes with thank you, and neither is
+       the name of anybody's training session. */
+    if (!it.hasTime && isGreeting(it.clean)) return;
+
     /* No clock and no day: a heading, and it names what follows. */
     if (!it.hasTime && !it.date){
       if (it.clean) name = headingName(it.clean);
@@ -4317,6 +4335,23 @@ function needsDateBelow(read, i){
     if (read[k].hasTime) return true;
   }
   return false;
+}
+
+/* Hello and goodbye. Short and closed on purpose: a list of greetings that
+ * tried to be clever would start swallowing lines that are events. */
+const GREETINGS = [
+  'שבת שלום','שבת שלום ומבורך','שבוע טוב','שבוע נפלא','שבוע מוצלח','בוקר טוב',
+  'ערב טוב','צהריים טובים','לילה טוב','חג שמח','שנה טובה','חופשה נעימה',
+  'סופש נעים','היי','הי','הייי','אהלן','שלום','תודה','תודה רבה','בהצלחה',
+  'נתראה','להתראות'
+];
+
+function isGreeting(s){
+  /* "שבת שלום לכולם!" is the same greeting with the room named and a shout
+     after it. */
+  const t = cleanish(s).replace(/[!?.,:;–—\-]+$/, '').trim()
+    .replace(/\s+(לכולם|לכולן|לכולכם|לכולכן|להורים|לילדים)$/, '').trim();
+  return !!t && GREETINGS.indexOf(t) >= 0;
 }
 
 /* A heading is written as a heading — "אימונים לשבוע הבא:" — and the colon
@@ -4375,11 +4410,19 @@ function readPaste(){
     return;
   }
 
+  /* Ticked unless the board already has it. Decided once, here: after this
+     the tick belongs to the parent, and nothing redrawing the list is
+     allowed to take it back. */
+  foundEvents.forEach(ev => { ev.take = !alreadyOnBoard(ev); });
   say('paste-msg', '');
+  paintFound();
+  $('paste-save-row').hidden = false;
+}
+
+function paintFound(){
   const box = el('div', 'found');
   foundEvents.forEach(function (ev, i){
-    const dup = alreadyOnBoard(ev);
-    ev.take = !dup;
+    const dup = !!(ev.title && alreadyOnBoard(ev));
 
     const row = el('div', 'found-row' + (dup ? ' dup' : ''));
     const tick = document.createElement('input');
@@ -4425,13 +4468,49 @@ function readPaste(){
     const note = el('div', 'note', dup ? 'כבר קיים בלוח' : '');
     note.hidden = !dup;
     what.appendChild(note);
-    row.appendChild(what);
 
+    /* One outing written as two lines — out at four, back at seven — is one
+       event with two legs here, and the message is the only place that
+       knows which two lines those are. Offered on the lower of the pair, so
+       it reads as joining the one above it. */
+    if (mergeMate(i) >= 0){
+      const join = el('button', 'mergebtn', '⤒ איחוד עם האירוע שמעליו');
+      join.type = 'button';
+      join.onclick = () => mergeFound(i);
+      what.appendChild(join);
+    }
+
+    row.appendChild(what);
     box.appendChild(row);
   });
+  $('paste-list').textContent = '';
   $('paste-list').appendChild(box);
-  $('paste-save-row').hidden = false;
   paintPasteButton();
+}
+
+/* The nearest row above this one on the same day, or -1. */
+function mergeMate(i){
+  for (let k = i - 1; k >= 0; k--) if (foundEvents[k].date === foundEvents[i].date) return k;
+  return -1;
+}
+
+/* Two rows become one event: earliest time out, latest back. Everything else
+ * is kept from the upper row, which is the one the parent sees staying. */
+function mergeFound(i){
+  const k = mergeMate(i);
+  if (k < 0) return;
+  const a = foundEvents[k], b = foundEvents[i];
+
+  const times = [a.time, a.backTime, b.time, b.backTime].filter(Boolean).sort();
+  a.time = times[0] || '';
+  a.backTime = times.length > 1 ? times[times.length - 1] : '';
+  a.place = a.place || b.place;
+  a.title = a.title || b.title;
+  /* Ticked if either was: merging is not a way to lose an event quietly. */
+  a.take = a.take || b.take;
+
+  foundEvents.splice(i, 1);
+  paintFound();
 }
 
 function paintPasteButton(){

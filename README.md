@@ -50,6 +50,16 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   that can be corrected before it is added, anything already on the board comes
   unticked and says so, **ניקוי** throws the lot away if the message was read
   wrongly, and what is ticked is written in one request.
+
+  One outing written as two lines — *יציאה 16:00*, *חזרה 19:00* — is one event
+  with two legs, and only the message knows which two lines those are. A row
+  with another above it on the same day offers **איחוד**: earliest time out,
+  latest back, and the upper row's name and place.
+
+  `שבת שלום` is a greeting, not a ride on Saturday, and the blessing after the
+  word is what says so; `משחק שבת 10:00` still means Saturday. Lines that are
+  only hello or thank you neither become events nor lend their words as a name
+  to the lines beneath them.
 - **One line is enough.** Type the event the way you would say it in the group
   — *אימון כדורגל יום שלישי 16:30-18:15 במגרש הדשא* — and the day, both times
   and the place fill themselves in. Then they come out of the title, so the
