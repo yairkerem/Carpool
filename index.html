@@ -421,7 +421,13 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 .found-row.dup{opacity:.7}
 .found-row input{flex:none;width:20px;height:20px;margin-top:2px;accent-color:var(--brand)}
 .found-row .what{flex:1;min-width:0}
-.found-row .ttl{font-size:15px;font-weight:700;color:var(--ink);overflow-wrap:anywhere}
+/* A field, but one that reads as the row's title until it is touched. */
+.found-row .ttl{
+  width:100%;font-size:15px;font-weight:700;color:var(--ink);
+  background:transparent;border:0;border-bottom:1px dashed var(--line);
+  border-radius:0;padding:1px 0 3px;
+}
+.found-row .ttl:focus{outline:none;border-bottom-color:var(--brand)}
 .found-row .when{font-size:14px;font-weight:600;color:var(--ink);margin-top:3px}
 .found-row .where{font-size:13px;color:var(--muted);margin-top:2px;overflow-wrap:anywhere}
 .found-row .note{font-size:12px;color:var(--warn);font-weight:700;margin-top:3px}
@@ -987,6 +993,10 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
   <div class="actions">
     <button id="b-paste-read" class="btn">קריאת ההודעה</button>
+    <!-- A message read wrongly leaves a screenful of rows nobody wants.
+         Clearing them is one tap, and the message goes with them: what a
+         parent does next is paste a different one. -->
+    <button id="b-paste-clear" class="btn ghost" hidden>ניקוי</button>
   </div>
 
   <div id="paste-msg" class="msg" hidden></div>
@@ -1190,7 +1200,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 124;
+const APP_VERSION = 125;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -3768,6 +3778,62 @@ function nextWeekday(dow, includeToday){
 }
 
 function findDay(text){
+  const word = findDayWord(text);
+  const num = findDayNumber(text);
+  if (!num) return word;
+
+  /* A written date carries its own month, so it wins over a weekday name —
+     and when the two sit together, "יום שלישי 13/10", they are one date said
+     twice and have to leave the title together. */
+  if (word && word.end <= num.start &&
+      /^[\s,\-–—]*$/.test(text.slice(word.end, num.start))) num.start = word.start;
+  return num;
+}
+
+/* 13/10, 13/10/26, 8.9.26.
+ *
+ * Slashes are a date and nothing else. Dots count only with a year on the
+ * end, because "20.10" is twenty past eight to findTimes below, and a message
+ * about rides holds far more clock times than dates. */
+function findDayNumber(text){
+  const re = /(\d{1,2})\/(\d{1,2})(?:\/(\d{2}|\d{4}))?|(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})/g;
+  let m;
+  while ((m = re.exec(text))){
+    const start = m.index, end = m.index + m[0].length;
+    if (!dateEdges(text, start, end)) continue;
+    const iso = readDate(m[0]);
+    if (!iso) continue;                       // 32/13 is somebody's typo
+    /* "ב13/10" hangs its ב on the date, the same way "ב16:00" does. */
+    const start2 = gluedPrefix(text, start) ? start - 1 : start;
+    return { iso: iso, label: m[0], start: start2, end: end };
+  }
+  return null;
+}
+
+/* Like isolatedNumber, with one difference that matters: a colon may follow.
+ * "יום שלישי 13/10:" is how a heading is written, and refusing the date over
+ * its own colon left "13/10" sitting in the name of every event under it. A
+ * colon with digits behind it is a clock, and stays refused. */
+function dateEdges(text, start, end){
+  const bad = c => c === '.' || c === ':' || c === '/' || (c >= '0' && c <= '9');
+  if (bad(text.charAt(start - 1))) return false;
+  const after = text.charAt(end);
+  if (after === ':') return !/\d/.test(text.charAt(end + 1));
+  return !bad(after);
+}
+
+/* A one-letter preposition stuck to the front of something understood —
+ * "במגרש", "ב16:00", "ב13/10". The letter belongs to the sentence and has to
+ * come out of the title with what it is attached to.
+ *
+ * The position is checked first because ''.indexOf('') is 0: at the start of
+ * a line there is no letter in front, and asking anyway said there was. */
+function gluedPrefix(text, i){
+  return i > 0 && PREFIXES.indexOf(text.charAt(i - 1)) >= 0 &&
+         !/[א-ת]/.test(text.charAt(i - 2));
+}
+
+function findDayWord(text){
   const tk = hebTokens(text);
   for (let i = 0; i < tk.length; i++){
     const t = tk[i];
@@ -3918,9 +3984,8 @@ function scanBare(text){
 
     /* "ב16" hangs its ב on the number; the letter belongs to the sentence, so
        it has to be cut away with it or the title keeps a stray ב. */
-    const glued = PREFIXES.indexOf(text.charAt(m.index - 1)) >= 0 &&
-                  !/[א-ת]/.test(text.charAt(m.index - 2));
-    out.push({ v: hhmm(h, min), start: glued ? m.index - 1 : m.index, end: end });
+    const start = gluedPrefix(text, m.index) ? m.index - 1 : m.index;
+    out.push({ v: hhmm(h, min), start: start, end: end });
   }
   return out;
 }
@@ -4001,15 +4066,22 @@ function findPlace(text, cuts){
     /* "במגרש הדשא" holds the venue "מגרש הדשא" with a ב stuck to the front.
        The letter belongs to the sentence, so it has to be cut away with the
        venue — leave it and the title keeps a stray "ב". */
-    const glued = PREFIXES.indexOf(text.charAt(i - 1)) >= 0 &&
-                  !/[א-ת]/.test(text.charAt(i - 2));
-    return { value: p, start: glued ? i - 1 : i, end: i + p.length };
+    const start = gluedPrefix(text, i) ? i - 1 : i;
+    return { value: p, start: start, end: i + p.length };
   }
 
   const tk = hebTokens(text);
   for (let i = 0; i < tk.length; i++){
     if (covered(tk[i].start)) continue;
-    if (PLACE_WORDS.indexOf(stripPrefix(tk[i].w)) < 0) continue;
+    /* Both spellings, and the bare one first. Half of these words begin with
+       a letter that is also a preposition — מגרש, בריכה, היכל — so stripping
+       one off before looking is how "16:00 מגרש הדשא" came out as the event's
+       name instead of its place: "מגרש" had been cut down to "גרש", which is
+       in no list. Only a word that is *not* a venue on its own gets a letter
+       taken off it. */
+    const bare = PLACE_WORDS.indexOf(tk[i].w) >= 0;
+    const glued = !bare && PLACE_WORDS.indexOf(stripPrefix(tk[i].w)) >= 0;
+    if (!bare && !glued) continue;
 
     let end = text.length;
     for (let j = i + 1; j < tk.length; j++){
@@ -4017,7 +4089,7 @@ function findPlace(text, cuts){
     }
     /* The leading ב of "במגרש" belongs to the sentence, not to the venue. */
     const raw = text.slice(tk[i].start, end).trim();
-    const value = (tk[i].w !== stripPrefix(tk[i].w)) ? raw.slice(1) : raw;
+    const value = glued ? raw.slice(1) : raw;
     if (value) return { value: value, start: tk[i].start, end: tk[i].start + raw.length };
   }
   return null;
@@ -4178,43 +4250,73 @@ function tidyTitle(){
  * park. */
 function readMessage(text){
   const lines = String(text || '').split(/\r?\n|[•;]/)
-    .map(s => s.replace(/^\s*\d+[.)]\s*/, '').trim())
+    /* A numbered bullet comes off the front — but "8.9.26" opens with what
+       looks exactly like one, and taking "8." off a date leaves "9.26",
+       which this parser reads as twenty-six past nine. A digit behind the
+       dot is a date, never a bullet. */
+    .map(s => s.replace(/^\s*\d{1,2}[.)](?!\d)\s*/, '').trim())
     .filter(Boolean);
+
+  /* Read first, decide after: whether a line is a heading or an event depends
+     on what comes under it, and that cannot be known one line at a time. */
+  const read = lines.map(function (line){
+    const p = parseTitle(line);
+    return {
+      line: line, p: p,
+      clean: p.clean,
+      date: p.day ? p.day.iso : '',
+      hasTime: !!(p.time || p.back),
+      colon: /[:：]\s*$/.test(line)
+    };
+  });
 
   const found = [];
   let name = '';          // the last name a line gave us
   let when = '';          // the last date a heading gave us
 
-  for (const line of lines){
-    const p = parseTitle(line);
-    const hasTime = !!(p.time || p.back);
-    const date = p.day ? p.day.iso : '';
-
-    /* No clock and no day: a heading. It names what follows, and if it
-       carries a date, dates what follows too. */
-    if (!hasTime && !date){
-      if (p.clean) name = headingName(p.clean);
-      continue;
-    }
-    if (!hasTime && date && !p.clean){
-      when = date;
-      continue;
+  read.forEach(function (it, i){
+    /* No clock and no day: a heading, and it names what follows. */
+    if (!it.hasTime && !it.date){
+      if (it.clean) name = headingName(it.clean);
+      return;
     }
 
-    const title = p.clean || name || 'אירוע';
-    if (p.clean) name = headingName(p.clean);
-    if (date) when = date;
+    /* A day or a date with no clock is the ambiguous one. "טיול שנתי 20/10"
+       is an event that happens to have no time; "יום שלישי 13/10:" over three
+       lines of times is the date those lines are missing. What settles it is
+       what comes underneath: a line below carrying times and no day of its
+       own has to be getting its day from here, so this is a heading. A colon
+       says the same thing outright, and so does having no name of its own. */
+    if (!it.hasTime && it.date && (it.colon || !it.clean || needsDateBelow(read, i))){
+      when = it.date;
+      if (it.clean) name = headingName(it.clean);
+      return;
+    }
+
+    const title = it.clean || name || 'אירוע';
+    if (it.clean) name = headingName(it.clean);
+    if (it.date) when = it.date;
 
     found.push({
       title: title,
-      date: date || when || '',
-      time: p.time,
-      backTime: p.back,
-      place: p.place,
-      line: line
+      date: it.date || when || '',
+      time: it.p.time,
+      backTime: it.p.back,
+      place: it.p.place,
+      line: it.line
     });
-  }
+  });
   return found;
+}
+
+/* Does anything under this line depend on it for a date? Looks down until the
+ * next line that brings its own, which starts a section of its own. */
+function needsDateBelow(read, i){
+  for (let k = i + 1; k < read.length; k++){
+    if (read[k].date) return false;
+    if (read[k].hasTime) return true;
+  }
+  return false;
 }
 
 /* A heading is written as a heading — "אימונים לשבוע הבא:" — and the colon
@@ -4239,13 +4341,26 @@ function cleanish(s){
 let foundEvents = [];
 
 function openPaste(){
+  clearPaste();
+  show('paste');
+  $('paste-text').focus();
+}
+
+/* Back to an empty screen: the message, what was read out of it, and the
+ * saving row. Opening the screen is the same thing, so it is the same code. */
+function clearPaste(){
   $('paste-text').value = '';
   $('paste-list').textContent = '';
   $('paste-save-row').hidden = true;
   say('paste-msg', '');
   foundEvents = [];
-  show('paste');
-  $('paste-text').focus();
+  paintPasteClear();
+}
+
+/* Nothing to clear, no button: it would be the only thing on this screen that
+ * does nothing when tapped. */
+function paintPasteClear(){
+  $('b-paste-clear').hidden = !$('paste-text').value.trim() && !foundEvents.length;
 }
 
 function readPaste(){
@@ -4253,6 +4368,7 @@ function readPaste(){
   foundEvents = readMessage(text).filter(e => e.date);
 
   $('paste-list').textContent = '';
+  paintPasteClear();
   if (!foundEvents.length){
     say('paste-msg', 'לא נמצאו אירועים בהודעה. כל אירוע צריך יום או תאריך — למשל "יום שלישי 16:30-18:15 במגרש".', 'err');
     $('paste-save-row').hidden = true;
@@ -4273,13 +4389,42 @@ function readPaste(){
     tick.onchange = () => { ev.take = tick.checked; paintPasteButton(); };
     row.appendChild(tick);
 
-    const what = el('label', 'what');
-    what.setAttribute('for', tick.id);
-    what.appendChild(el('div', 'ttl', ev.title));
-    what.appendChild(el('div', 'when', dayLabel(ev.date) +
+    const what = el('div', 'what');
+
+    /* The name is the part a parser gets wrong — a message says "אימון" and
+       the board wants "אימון כדורגל ג׳" — so it is a field here rather than a
+       line of text, and the correction is made before the event exists
+       instead of in the editor afterwards. */
+    const ttl = document.createElement('input');
+    ttl.type = 'text';
+    ttl.className = 'ttl';
+    ttl.dir = 'auto';
+    ttl.value = ev.title;
+    ttl.setAttribute('aria-label', 'שם האירוע');
+    ttl.oninput = () => {
+      ev.title = ttl.value.trim();
+      /* Renaming can turn a new event into one the board already has, and the
+         other way round. Said, never acted on: the tick is the parent's. */
+      const now = ev.title && alreadyOnBoard(ev);
+      note.textContent = now ? 'כבר קיים בלוח' : '';
+      note.hidden = !now;
+      row.classList.toggle('dup', !!now);
+      paintPasteButton();
+    };
+    what.appendChild(ttl);
+
+    /* The rest of the row toggles the tick, as a label — the name does not,
+       or it could not be typed into. */
+    const rest = el('label', 'rest');
+    rest.setAttribute('for', tick.id);
+    rest.appendChild(el('div', 'when', dayLabel(ev.date) +
       (ev.time ? ' · ' + ev.time : '') + (ev.backTime ? '–' + ev.backTime : '')));
-    if (ev.place) what.appendChild(el('div', 'where', '📍 ' + ev.place));
-    if (dup) what.appendChild(el('div', 'note', 'כבר קיים בלוח'));
+    if (ev.place) rest.appendChild(el('div', 'where', '📍 ' + ev.place));
+    what.appendChild(rest);
+
+    const note = el('div', 'note', dup ? 'כבר קיים בלוח' : '');
+    note.hidden = !dup;
+    what.appendChild(note);
     row.appendChild(what);
 
     box.appendChild(row);
@@ -4292,8 +4437,13 @@ function readPaste(){
 function paintPasteButton(){
   const n = foundEvents.filter(e => e.take).length;
   const b = $('b-paste-save');
-  b.disabled = !n;
-  b.textContent = !n ? 'לא נבחרו אירועים'
+  /* A name emptied by hand is not a name the app should invent one for, and
+     an event with none is refused by the backend anyway — so it is said here,
+     where it can still be typed. */
+  const unnamed = foundEvents.some(e => e.take && !String(e.title || '').trim());
+  b.disabled = !n || unnamed;
+  b.textContent = unnamed ? 'צריך שם לכל אירוע'
+                : !n ? 'לא נבחרו אירועים'
                 : n === 1 ? 'הוספת אירוע אחד' : 'הוספת ' + n + ' אירועים';
 }
 
@@ -5608,7 +5758,9 @@ $('b-new').onclick = () => openEdit(null);
 $('b-paste').onclick = openPaste;
 $('b-paste-back').onclick = () => { show('list'); render(); };
 $('b-paste-read').onclick = readPaste;
+$('b-paste-clear').onclick = () => { clearPaste(); $('paste-text').focus(); };
 $('b-paste-save').onclick = savePaste;
+$('paste-text').addEventListener('input', paintPasteClear);
 $('b-update').onclick = applyUpdate;
 
 $('b-edit-back').onclick = () => { show('list'); render(); };

@@ -43,17 +43,22 @@ who is bringing the children home at 18:15, and this puts that on one screen.
 - **A whole message at once.** The coach sends the term in one WhatsApp
   message; paste it into **⎙ הדבקה** on the board and every line that carries a
   day or a date becomes an event. A line with times but no name takes the name
-  above it, and a heading with a date dates the lines beneath it, because that
-  is how those messages are written. Nothing is added without being shown
-  first: each one appears as a row to tick or leave, anything already on the
-  board comes unticked and says so, and the lot is written in one request.
+  above it, and a heading with a date — *אימון כדורגל יום שלישי 13/10:* —
+  dates the lines beneath it instead of becoming an event of its own, because
+  that is how those messages are written. Nothing is added without being shown
+  first: each one appears as a row to tick or leave, with its name in a field
+  that can be corrected before it is added, anything already on the board comes
+  unticked and says so, **ניקוי** throws the lot away if the message was read
+  wrongly, and what is ticked is written in one request.
 - **One line is enough.** Type the event the way you would say it in the group
   — *אימון כדורגל יום שלישי 16:30-18:15 במגרש הדשא* — and the day, both times
   and the place fill themselves in. Then they come out of the title, so the
   card reads *אימון כדורגל* rather than repeating itself three times. Every
   field below is optional; fill in as many or as few as you like.
 
-  What it reads: `יום` + a day name, plus `שבת`, `היום`, `מחר`, `מחרתיים`; one
+  What it reads: `יום` + a day name, plus `שבת`, `היום`, `מחר`, `מחרתיים`; a
+  written date — `13/10`, `13/10/26`, `8.9.26`, and a date with no year lands
+  on the year that puts it closest to today; one
   or two times, the first being the way there; and a place — one of the group's
   saved places or anywhere it has met before, matched exactly, or a phrase
   starting at a venue word like `מגרש`, `אולם`, `בריכה`. `@` marks a place
@@ -65,7 +70,9 @@ who is bringing the children home at 18:15, and this puts that on one screen.
 
   `2030` is half past eight; `2026` stays the year it is. A bare 20xx is read
   as a time only when its minutes fall on a multiple of five, which is how
-  people arrange to be collected and is not how years fall.
+  people arrange to be collected and is not how years fall. `20.10` is a time
+  for the same reason — a date written with dots needs its year, `20.10.26`,
+  because a message about rides holds far more clock times than dates.
 
   A day named as a day is **never today**. Somebody who means today says
   `היום`; saying `יום רביעי` on a Wednesday is how people say next
