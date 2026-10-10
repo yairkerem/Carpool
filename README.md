@@ -57,8 +57,9 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   A heading that only announces the list, *אימונים לשבוע הבא*, counts as the
   kind rather than as a name. When none of that yields anything, the field is
   left **empty** rather than filled with *אירוע* or a leftover dash: a name the
-  app invented looks like a name somebody chose. The row says צריך שם and the
-  save button waits for it.
+  app invented looks like a name somebody chose. The empty field is tinted the
+  colour of a warning instead of being labelled, and the save button waits for
+  it.
 
   One outing written as two lines — *יציאה 16:00*, *חזרה 19:00* — is one event
   with two legs, and only the message knows which two lines those are. A row

@@ -428,6 +428,13 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
   border-radius:0;padding:1px 0 3px;
 }
 .found-row .ttl:focus{outline:none;border-bottom-color:var(--brand)}
+/* A name the parser could not work out. The field is tinted rather than
+   labelled: an empty box the colour of a warning is read before any words
+   under it would be, and the save button says the rest. */
+.found-row .ttl.needs{
+  background:var(--warn-soft);border-bottom-color:var(--warn);
+  border-radius:8px;padding:4px 8px;
+}
 .found-row .when{font-size:14px;font-weight:600;color:var(--ink);margin-top:3px}
 .found-row .where{font-size:13px;color:var(--muted);margin-top:2px;overflow-wrap:anywhere}
 .found-row .note{font-size:12px;color:var(--warn);font-weight:700;margin-top:3px}
@@ -1207,7 +1214,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 127;
+const APP_VERSION = 128;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -4529,12 +4536,13 @@ function paintFound(){
     ttl.dir = 'auto';
     ttl.value = ev.title;
     ttl.setAttribute('aria-label', 'שם האירוע');
-    ttl.placeholder = 'שם האירוע';
+    ttl.classList.toggle('needs', !ev.title);
     ttl.oninput = () => {
       ev.title = ttl.value.trim();
       /* Renaming can turn a new event into one the board already has, and the
          other way round. Said, never acted on: the tick is the parent's. */
       row.classList.toggle('dup', !!(ev.title && alreadyOnBoard(ev)));
+      ttl.classList.toggle('needs', !ev.title);
       sayNote(note, ev);
       paintPasteButton();
     };
@@ -4572,12 +4580,10 @@ function paintFound(){
   paintPasteButton();
 }
 
-/* The one line under a row that is worth the space. A name the parser could
- * not work out is left empty rather than invented, so the row has to say that
- * it is waiting for one — otherwise the only sign is a save button that will
- * not press. */
+/* The one line under a row that is worth the space. A missing name is not on
+ * it: the tinted field says that, and saying it twice makes neither louder. */
 function sayNote(note, ev){
-  const text = !ev.title ? 'צריך שם' : alreadyOnBoard(ev) ? 'כבר קיים בלוח' : '';
+  const text = ev.title && alreadyOnBoard(ev) ? 'כבר קיים בלוח' : '';
   note.textContent = text;
   note.hidden = !text;
 }
