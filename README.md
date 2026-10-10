@@ -51,6 +51,15 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   unticked and says so, **ניקוי** throws the lot away if the message was read
   wrongly, and what is ticked is written in one request.
 
+  A name is taken from the line, or from the heading above it, or — when the
+  message says what kind of outing it is and nothing more — built as
+  *אימון יום שלישי*, *משחק שבת*, which is how these are spoken about anyway.
+  A heading that only announces the list, *אימונים לשבוע הבא*, counts as the
+  kind rather than as a name. When none of that yields anything, the field is
+  left **empty** rather than filled with *אירוע* or a leftover dash: a name the
+  app invented looks like a name somebody chose. The row says צריך שם and the
+  save button waits for it.
+
   One outing written as two lines — *יציאה 16:00*, *חזרה 19:00* — is one event
   with two legs, and only the message knows which two lines those are. A row
   with another above it on the same day offers **איחוד**: earliest time out,

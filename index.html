@@ -1207,7 +1207,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 126;
+const APP_VERSION = 127;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -4311,13 +4311,14 @@ function readMessage(text){
       return;
     }
 
-    const title = it.clean || name || 'אירוע';
+    const date = it.date || when || '';
+    const title = suggestName(headingName(it.clean), name, it.line, date);
     if (it.clean) name = headingName(it.clean);
     if (it.date) when = it.date;
 
     found.push({
       title: title,
-      date: it.date || when || '',
+      date: date,
       time: it.p.time,
       backTime: it.p.back,
       place: it.p.place,
@@ -4352,6 +4353,90 @@ function isGreeting(s){
   const t = cleanish(s).replace(/[!?.,:;–—\-]+$/, '').trim()
     .replace(/\s+(לכולם|לכולן|לכולכם|לכולכן|להורים|לילדים)$/, '').trim();
   return !!t && GREETINGS.indexOf(t) >= 0;
+}
+
+/* What to put in the name field of a row, in order of what it is worth:
+ *
+ *  1. What the line itself says, once the punctuation around it is gone.
+ *  2. What the heading above it said.
+ *  3. The kind of thing it is, plus the day it falls on — "אימון יום שלישי",
+ *     "משחק שבת" — which is how these are spoken about anyway.
+ *  4. Nothing.
+ *
+ * Nothing, rather than "אירוע" or a leftover dash: a name the app invented
+ * looks like a name somebody chose, and goes onto the board unread. An empty
+ * field says what it is, and the save button waits for it. The kind word on
+ * its own gets the day too, because a week of rows all called אימון is a week
+ * of rows nobody can tell apart.
+ */
+function suggestName(own, above, line, date){
+  const kind = eventKind(line) || eventKind(above);
+  const named = realName(own) || realName(above);
+  if (named && named !== kind && !justKind(named, kind)) return named;
+  if (!kind) return '';
+  const day = date ? dayWord(date) : '';
+  return day ? kind + ' ' + day : kind;
+}
+
+/* The two kinds of outing a parents' group writes about. Anything else is
+ * left to the parent to name: guessing further is how "יציאה" ends up on the
+ * board as the name of a football match. */
+function eventKind(text){
+  const tk = hebTokens(String(text || ''));
+  for (const t of tk){
+    const kind = kindOfWord(t.w);
+    if (kind) return kind;
+  }
+  return '';
+}
+
+const KINDS = {
+  'אימון':'אימון', 'אימונים':'אימון', 'אימוני':'אימון', 'תרגול':'אימון',
+  'משחק':'משחק', 'משחקים':'משחק', 'משחקי':'משחק'
+};
+
+function kindOfWord(w){
+  return KINDS[w] || KINDS[stripPrefix(w)] || '';
+}
+
+/* "אימונים לשבוע הבא" is the message announcing itself, not the name of a
+ * training session — it says the kind and when, and nothing else. Said of
+ * one event it becomes "אימון יום שני", which is what it meant. */
+const SCHEDULE_WORDS = ['השבוע','שבוע','לשבוע','הבא','הבאה','הקרוב','הקרובה',
+                        'הקרובים','הקרובות','הבאים','הבאות','הזה','החודש','חודש',
+                        'של','ה'];
+
+function justKind(s, kind){
+  const tk = hebTokens(String(s || ''));
+  return !!kind && tk.length > 0 &&
+    tk.every(t => kindOfWord(t.w) === kind || SCHEDULE_WORDS.indexOf(t.w) >= 0);
+}
+
+/* A line that says only "יציאה" or "חזרה" is telling you which leg it is,
+ * not what the outing is called. Taken as a name it puts "חזרה" on the board
+ * where "אימון יום שלישי" belongs — and these are exactly the lines that are
+ * meant to be merged into one event anyway. */
+const LEG_WORDS = ['יציאה','חזרה','הלוך','חזור','איסוף','הסעה','הסעות',
+                   'נסיעה','יוצאים','חוזרים','יוצאות','חוזרות'];
+
+function realName(s){
+  const t = tidyName(s);
+  return LEG_WORDS.indexOf(t) >= 0 ? '' : t;
+}
+
+/* "יום שלישי", "שבת" — the way a day is said, not the way it is written. */
+function dayWord(iso){
+  const d = fromIso(iso).getDay();
+  return d === 6 ? 'שבת' : 'יום ' + HE_DAYS[d];
+}
+
+/* A name has to have a letter or a number in it somewhere. What is left of
+ * "-" or ":" once they are taken off the ends is nothing at all, and nothing
+ * is what it should say. */
+function tidyName(s){
+  const t = String(s || '').replace(/^[\s,.:;!?·•\-–—]+/, '')
+                           .replace(/[\s,.:;!?·•\-–—]+$/, '').trim();
+  return /[א-תa-zA-Z0-9]/.test(t) ? t : '';
 }
 
 /* A heading is written as a heading — "אימונים לשבוע הבא:" — and the colon
@@ -4444,14 +4529,13 @@ function paintFound(){
     ttl.dir = 'auto';
     ttl.value = ev.title;
     ttl.setAttribute('aria-label', 'שם האירוע');
+    ttl.placeholder = 'שם האירוע';
     ttl.oninput = () => {
       ev.title = ttl.value.trim();
       /* Renaming can turn a new event into one the board already has, and the
          other way round. Said, never acted on: the tick is the parent's. */
-      const now = ev.title && alreadyOnBoard(ev);
-      note.textContent = now ? 'כבר קיים בלוח' : '';
-      note.hidden = !now;
-      row.classList.toggle('dup', !!now);
+      row.classList.toggle('dup', !!(ev.title && alreadyOnBoard(ev)));
+      sayNote(note, ev);
       paintPasteButton();
     };
     what.appendChild(ttl);
@@ -4465,8 +4549,8 @@ function paintFound(){
     if (ev.place) rest.appendChild(el('div', 'where', '📍 ' + ev.place));
     what.appendChild(rest);
 
-    const note = el('div', 'note', dup ? 'כבר קיים בלוח' : '');
-    note.hidden = !dup;
+    const note = el('div', 'note');
+    sayNote(note, ev);
     what.appendChild(note);
 
     /* One outing written as two lines — out at four, back at seven — is one
@@ -4486,6 +4570,16 @@ function paintFound(){
   $('paste-list').textContent = '';
   $('paste-list').appendChild(box);
   paintPasteButton();
+}
+
+/* The one line under a row that is worth the space. A name the parser could
+ * not work out is left empty rather than invented, so the row has to say that
+ * it is waiting for one — otherwise the only sign is a save button that will
+ * not press. */
+function sayNote(note, ev){
+  const text = !ev.title ? 'צריך שם' : alreadyOnBoard(ev) ? 'כבר קיים בלוח' : '';
+  note.textContent = text;
+  note.hidden = !text;
 }
 
 /* The nearest row above this one on the same day, or -1. */
