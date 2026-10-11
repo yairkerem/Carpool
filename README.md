@@ -190,8 +190,16 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   for, not handed out: this is for writing down an arrangement already made —
   the parent who said yes in the WhatsApp group, over the phone, or at the gate
   on Tuesday — because an arrangement the board does not know about is the one
-  that strands a child. Nothing is sent to the parent named; telling them is
-  still a person's job.
+  that strands a child.
+
+  The parent named is told, if they have notifications on: *דנה שיבץ/ה אתכם:
+  יום שלישי 13/10 — הלוך ב-16:00, מגרש הדשא*. It goes in a request of its own,
+  after the claim has been answered, so the admin's tap never waits on the push
+  relay — and the admin is told which happened: the notice went, or that parent
+  has notifications off and somebody has to pick up the phone. The backend
+  sends it only when the asker really is an admin of that group and the parent
+  named really is on that leg, so the only thing it can announce is a fact
+  already on the board.
 
   And they are told when somebody new joins — a line at the top of the board
   naming them, which stays until the admin opens settings and sees the list.

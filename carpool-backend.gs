@@ -29,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 28;
+const BACKEND_VERSION = 29;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -95,7 +95,7 @@ let ME = '';
 let STARTED = 0;
 
 /* Actions that change the board, and so are closed to a removed parent. */
-const WRITES = ['me', 'save', 'series', 'remove', 'claim', 'release', 'ride', 'kick',
+const WRITES = ['me', 'save', 'series', 'remove', 'claim', 'release', 'ride', 'kick', 'assigned',
                 'drivers', 'rename', 'places', 'push', 'remindat', 'joined',
                 'group'];
 
@@ -587,6 +587,59 @@ function announceJoin(meId) {
   return { ok: true, announced: true };
 }
 
+/* The admin has put somebody on a leg, and that somebody is told.
+ *
+ * A SEPARATE REQUEST, for the reason set out above announceJoin: reaching the
+ * relay is a network call, and an admin tapping a name should not wait for it
+ * — least of all on this backend. The app claims the leg, gets its answer, and
+ * only then says so. A notice that never lands costs a notification, not an
+ * arrangement: the board already shows who is driving.
+ *
+ * What is checked here, because a request is a request whatever sent it: the
+ * asker is an admin of this group, the parent named is a member who is not
+ * removed, the event exists and has not happened, and that parent is on that
+ * leg right now. The last one is what stops this being a way to make somebody
+ * else's phone buzz — the only thing it can announce is a fact already on the
+ * board. */
+function assigned(id, leg, parentId, by) {
+  const col = LEGS[leg];
+  if (!col) return { ok: false, error: 'bad leg' };
+  if (!parentId || !by) return { ok: false, error: 'no parent' };
+
+  const all = parents();
+  const admin = all.filter(p => p.id === by)[0];
+  if (!admin || admin.admin !== '1' || admin.removed === '1') {
+    return { ok: false, error: 'not admin' };
+  }
+  const them = all.filter(p => p.id === parentId)[0];
+  if (!them || them.removed === '1') return { ok: false, error: 'no parent' };
+  if (parentId === by) return { ok: true, told: false };   // nobody tells themselves
+
+  const ev = eventById(id, true);
+  if (!ev) return { ok: false, error: 'not found' };
+  if (ev.date < today()) return { ok: true, told: false };
+  if (parseDrivers(ev[col]).indexOf(parentId) < 0) return { ok: true, told: false };
+
+  const which = leg === 'to' ? 'הלוך' : 'חזור';
+  const time = (leg === 'to' ? ev.time : ev.backTime) || '';
+  const items = pushTargets([parentId]).map(t => ({
+    parentId: t.parentId, sub: t.sub,
+    title: ev.title || CURRENT.name || 'הסעות',
+    body: (admin.name || 'מנהל/ת הקבוצה') + ' שיבץ/ה אתכם: ' + dayWords(ev.date) +
+          ' — ' + which + (time ? ' ב-' + time : '') +
+          (ev.place ? ', ' + ev.place : '') + '.',
+    /* One tag per leg: told twice about the same leg — a retry, or an admin
+       who took somebody off and put them back — replaces the notice rather
+       than stacking a second one beside it. */
+    tag: 'assigned-' + id + '-' + leg,
+    url: './'
+  }));
+  if (!items.length) return { ok: true, told: false };   // notifications off
+
+  pushSend(items);
+  return { ok: true, told: true };
+}
+
 function notifyNewMember(name, newId) {
   const admins = parents()
     .filter(p => p.admin === '1' && p.removed !== '1' && p.id !== newId)
@@ -962,6 +1015,7 @@ function doPost(e) {
       case 'series':  return json(saveSeries(req.events));
       case 'remove':  return json(removeEvent(req.id, req.scope));
       case 'claim':   return json(claim(req.id, req.leg, req.parentId));
+      case 'assigned':return json(assigned(req.id, req.leg, req.parentId, ME));
       case 'release': return json(release(req.id, req.leg, req.parentId));
       case 'ride':    return json(setRider(req.id, req.leg, req.parentId, req.riding));
       case 'kick':    return json(kickParent(req.id, req.by));

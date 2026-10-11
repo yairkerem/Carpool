@@ -1252,7 +1252,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 133;
+const APP_VERSION = 134;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -3897,10 +3897,40 @@ async function legAction(btn, ev, leg, action, who){
        that gets tapped several times in a sitting. A failure still speaks,
        below, because that is the moment the chip goes back and needs it. */
     banner('');
+    /* Somebody put on a leg by somebody else is told about it, in a request
+       of its own and after this one has answered — the same arrangement as
+       announcing a new member, and for the same reason: reaching the push
+       relay is a network call, and the admin's tap is not made to wait for
+       it. Nothing is said if it fails, either. The arrangement is on the
+       board whether or not a notification was delivered, and an admin who
+       assigned a driver has not been told the phone will do the telling. */
+    if (action === 'claim' && who && who !== state.me.id) tellAssigned(ev, leg, who);
   } catch (err) {
     ev[driverKey] = before;
     render();
     banner(netMessage(err) + ' השיבוץ לא נשמר.');
+  }
+}
+
+/* One try and no retry: a notification is worth a request and not worth a
+ * minute of somebody's afternoon, and the board has already recorded the
+ * arrangement this is about.
+ *
+ * The answer is said, though. An admin who assigns a driver and is told
+ * nothing will assume the phone did the telling — and the one case where it
+ * cannot is the case where somebody has to pick up the phone themselves. */
+async function tellAssigned(ev, leg, parentId){
+  const p = parentById(parentId);
+  const name = (p && p.name) || 'ההורה';
+  try {
+    const r = await api({ action:'assigned', id: ev.id, leg: leg, parentId: parentId }, 15000);
+    /* A backend that has not been updated answers "unknown action", and a
+       refusal is not news to anybody: the assignment itself went through. */
+    if (!r || !r.ok) return;
+    banner(r.told ? 'נשלחה הודעה ל' + name + '.'
+                  : name + ' לא מקבל/ת התראות — כדאי להודיע בדרך אחרת.');
+  } catch (err) {
+    banner('השיבוץ נשמר, אבל ההודעה ל' + name + ' לא נשלחה.');
   }
 }
 
