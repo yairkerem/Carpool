@@ -1672,8 +1672,12 @@ function claim(id, leg, parentId) {
   });
 }
 
-/* Standing down removes you and only you. There is no call for taking someone
- * else off a leg, and a filter by id means the app cannot ask for it. */
+/* Removes whoever is named, which is the parent pressing in every case but
+ * one: the group's admin can take somebody off a leg, and can put somebody on
+ * it, because an arrangement made in the WhatsApp group still has to reach the
+ * board. Claiming is the same — `parentId` is taken as given. Who may ask is
+ * decided in the app rather than here; everyone holding the group's secret can
+ * already write to it, and this is a board a family shares, not a lock. */
 function release(id, leg, parentId) {
   const col = LEGS[leg];
   if (!col) return { ok: false, error: 'bad leg' };

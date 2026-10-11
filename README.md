@@ -185,6 +185,14 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   The admin also names the group, sets how many drivers a leg wants before it
   counts as sorted, and keeps the group's list of places.
 
+  On a leg that has not happened yet, the admin can put another parent on it
+  (**＋ שיבוץ הורה**) as well as take one off (**✕**). Driving is volunteered
+  for, not handed out: this is for writing down an arrangement already made —
+  the parent who said yes in the WhatsApp group, over the phone, or at the gate
+  on Tuesday — because an arrangement the board does not know about is the one
+  that strands a child. Nothing is sent to the parent named; telling them is
+  still a person's job.
+
   And they are told when somebody new joins — a line at the top of the board
   naming them, which stays until the admin opens settings and sees the list.
   Nobody else is told: for the rest of the group a new name is just a new name,

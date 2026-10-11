@@ -382,6 +382,16 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 }
 .act.ghost{background:transparent;color:var(--muted);border-color:var(--line)}
 .act:disabled{opacity:.5}
+/* The admin's list of who else could be put on this leg. A row is a name and
+   nothing else: the chip carries the colour, and a button around it keeps the
+   whole line tappable in a moving car park. */
+.pickwho{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:8px}
+.whorow{
+  display:flex;align-items:center;width:100%;cursor:pointer;
+  background:transparent;border:1px dashed var(--line);border-radius:10px;
+  padding:6px 8px;
+}
+.whorow:active{background:var(--brand-soft);border-color:var(--brand)}
 
 
 /* ---------- empty / fab ---------- */
@@ -1220,7 +1230,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 131;
+const APP_VERSION = 132;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -3752,6 +3762,46 @@ function legBlock(ev, leg, past){
     act.textContent = iDrive ? 'לא אוכל' : (drivers.length ? 'גם אני' : 'אני אסיע');
     act.onclick = () => legAction(act, ev, leg, iDrive ? 'release' : 'claim');
     box.appendChild(act);
+
+    /* The admin can put somebody else on a leg, as well as take them off.
+       Driving is volunteered for, not handed out, so this is the arrangement
+       already made elsewhere being written down: the parent who said yes in
+       the WhatsApp group, or over the phone, or at the gate on Tuesday. The
+       board is the place everybody looks, and an arrangement only it does not
+       know about is the one that strands a child.
+       Nothing is sent to the parent being named — tell them yourself; the app
+       will not do it for you. */
+    const others = iAmAdmin() ? state.parents.filter(
+      p => p.id && !p.removed && !isMe(p.id) && drivers.indexOf(p.id) < 0) : [];
+    if (others.length){
+      const pick = el('div', 'pickwho');
+      pick.hidden = true;
+
+      const open = el('button', 'act ghost', '＋ שיבוץ הורה');
+      open.type = 'button';
+      open.onclick = () => {
+        pick.hidden = !pick.hidden;
+        open.textContent = pick.hidden ? '＋ שיבוץ הורה' : 'ביטול';
+        /* A column scrolls on its own, and the names open below its fold on a
+           short phone — so the list that just appeared is brought to where
+           somebody is looking, rather than left for them to find. */
+        if (!pick.hidden) pick.scrollIntoView({ block:'nearest' });
+      };
+      box.appendChild(open);
+
+      for (const p of others){
+        const row = el('button', 'whorow');
+        row.type = 'button';
+        row.setAttribute('aria-label', 'שיבוץ ' + (p.name || 'הורה') + ' לנסיעה');
+        row.appendChild(personChip(p, true));
+        /* The board redraws on the way, which closes this list — tapping a
+           name is the whole interaction, and there is nothing left to pick
+           from once it has happened. */
+        row.onclick = () => legAction(row, ev, leg, 'claim', p.id);
+        pick.appendChild(row);
+      }
+      box.appendChild(pick);
+    }
   }
 
   /* No passenger list. Everybody in the group is going — that is what makes it
