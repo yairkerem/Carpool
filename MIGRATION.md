@@ -36,16 +36,41 @@ Two weeks of evidence first. The app counts what happens to the four things a
 parent actually does — saving an event, saving group settings, claiming a leg,
 joining — and shows the tally in settings under the version:
 
-> מאז 10/09: 7 פעולות · 1 נשלחו שוב · 1 נכשלו · שרת עד 6.2ש
+> מאז 10/09: 122 פעולות · 17 נשלחו שוב · 9 נכשלו (6 שרת שתק · 2 אין קשר · 1 תשובה פגומה) · שרת עד 5.7ש
 
 Read as: how many went through first time, how many needed another go, how many
-gave up, and the slowest the server admitted to. Background refreshes are not
-counted; a stale board is not a failure anyone notices.
+gave up and why, and the slowest the server admitted to. Background refreshes
+are not counted; a stale board is not a failure anyone notices.
 
-**What decides it.** Failures that reach a parent *through* three retries mean
-Apps Script is not good enough and this plan goes ahead. A tally of a hundred
-actions with a handful of retries and no failures means the retries are doing
-their job and the rebuild is not worth what it costs.
+Why a failure failed is the whole question, so it is counted (v129 on):
+
+- **שרת שתק** — the request went out and nothing came back inside its window.
+  This is the failure this document is about: the POST → 302 →
+  googleusercontent hop losing a request.
+- **אין קשר** — the request never produced a response at all. Usually the
+  phone: a lift, a car park, a dead wifi. Not provably so, which is why it is
+  named for what was seen rather than for who is to blame.
+- **תשובה פגומה** — something came back and it was not JSON, which on this
+  backend means an error page or a login page wearing the server's name.
+
+`שרת עד` is the script's own execution time, measured inside `doPost`, so it
+excludes the redirect hop and the network. In September that number was 0.6–1.9s
+while whole round trips took 9–13s — the plumbing was the problem and the code
+was the fast part. A number far above two seconds says the script has become
+slow in its own right, which is a different problem with a different fix.
+
+The copied log carries one line more: which kinds forced the *retries*, not
+only the ones that gave up.
+
+**What decides it.** Failures that reach a parent *through* three retries, and
+are שרת שתק or תשובה פגומה, mean Apps Script is not good enough and this plan
+goes ahead. אין קשר failures do not count towards it: no backend would have
+survived them. A tally of a hundred actions with a handful of retries and no
+failures of the server's own making means the retries are doing their job and
+the rebuild is not worth what it costs.
+
+The tally can be started again from the settings screen, so a fortnight can be
+measured without the afternoon of debugging that preceded it.
 
 The rest of this document is the plan for if it goes ahead.
 

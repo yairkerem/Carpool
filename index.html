@@ -619,6 +619,9 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
   display:flex;align-items:center;justify-content:center;gap:8px;
 }
 .btn.ghost{background:transparent;color:var(--muted);border:1px solid var(--line)}
+/* A button that is a footnote: it sits under a line of text rather than in a
+   row of its own, so it takes its own width and not the screen's. */
+.btn.small{display:inline-flex;flex:none;padding:8px 12px;font-size:13px;margin-top:8px}
 .btn.danger{background:transparent;color:var(--danger);border:1px solid var(--line)}
 .btn:disabled{opacity:.55}
 .spin{
@@ -916,6 +919,9 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     <!-- Left in on purpose while we decide whether Apps Script is good
          enough. Two weeks of impressions is not evidence. -->
     <p class="hint" id="health-line" hidden></p>
+    <!-- A tally that cannot be started again measures the backend plus every
+         afternoon of debugging that ever shared a phone with it. -->
+    <button id="b-health-reset" class="btn ghost small" hidden>איפוס המונה</button>
     <!-- The last few writes, and what each one actually asked for. A parent
          who thinks a save did something other than what they chose has
          nothing to point at otherwise, and neither has anybody trying to
@@ -1214,7 +1220,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 128;
+const APP_VERSION = 129;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1276,11 +1282,17 @@ async function sendRetrying(payload, onRetry, as){
       return r;
     } catch (err) {
       spent += Date.now() - began;
+      const kind = errKind(err);
+      /* Nothing was sent and nothing will be: there is no address to send to.
+         Retrying it twice wastes a minute and files two more failures against
+         a backend that was never asked anything. */
+      if (kind === 'setup') throw err;
       if (attempt >= TRY_MS.length - 1 || spent > RETRY_BUDGET_MS){
-        noteHealth('failed');
+        noteHealth('failed', 0, kind);
         noteTrail(payload, '✗');
         throw err;
       }
+      noteHealth('retried', 0, kind);
       if (onRetry) onRetry();
     }
   }
@@ -1299,18 +1311,72 @@ async function sendRetrying(payload, onRetry, as){
  *
  * Cheap enough to leave in: four integers in localStorage, written on a path
  * that has just been over the network. */
+function blankHealth(){
+  return { since: todayIso(), clean: 0, recovered: 0, failed: 0, worstMs: 0,
+           /* Why an attempt had to be repeated, and why the ones that gave up
+              gave up. Counted apart because they answer different questions:
+              the first is how often this backend makes somebody wait, the
+              second is how often it costs them the thing they just did. */
+           again: {}, fail: {} };
+}
+
 function health(){
   let h = null;
   try { h = JSON.parse(localStorage.getItem(LS.health) || 'null'); }
   catch (e) { h = null; }
-  return h || { since: todayIso(), clean: 0, recovered: 0, failed: 0, worstMs: 0 };
+  /* A tally from before the failures were told apart cannot be told apart
+     now, and a line that says "9 failed, 0 of them anything" is worse than
+     no line. So the count starts again, once, on the way up to this build. */
+  if (!h || !h.fail || !h.again) return blankHealth();
+  return h;
 }
 
-function noteHealth(what, serverMs){
-  const h = health();
-  h[what] = (h[what] || 0) + 1;
-  if (serverMs > h.worstMs) h.worstMs = serverMs;
+function saveHealth(h){
   try { localStorage.setItem(LS.health, JSON.stringify(h)); } catch (e) { /* private mode */ }
+}
+
+function noteHealth(what, serverMs, kind){
+  const h = health();
+  if (what === 'retried'){
+    h.again[kind] = (h.again[kind] || 0) + 1;
+  } else {
+    h[what] = (h[what] || 0) + 1;
+    if (what === 'failed' && kind) h.fail[kind] = (h.fail[kind] || 0) + 1;
+  }
+  if (serverMs > h.worstMs) h.worstMs = serverMs;
+  saveHealth(h);
+}
+
+/* Whose fault the attempt was, as far as a phone can tell.
+ *
+ *  timeout — the request went out and nothing came back inside its window.
+ *            This is the Apps Script failure: the POST → 302 → googleusercontent
+ *            hop losing a request, which is the whole reason this is counted.
+ *  net     — the request never produced a response at all. Usually the phone:
+ *            a lift, a car park, a dead wifi. Not provably so, which is why it
+ *            is named for what was seen and not for who is to blame.
+ *  reply   — something came back and it was not JSON, which on this backend
+ *            means an error page or a login page wearing the server's name.
+ *  setup   — no address to send to. Not a backend failure; not counted.
+ *
+ * navigator.onLine overrules a timeout: a phone that lost its signal mid
+ * request produces the same silence as a server that swallowed it, and the
+ * one thing that distinguishes them is knowing the radio went away. */
+function errKind(err){
+  const m = err && err.message;
+  if (m === 'no-backend') return 'setup';
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return 'net';
+  if (err && err.name === 'AbortError') return 'timeout';
+  if (m === 'bad-json') return 'reply';
+  return 'net';
+}
+
+const KIND_HE = { timeout: 'שרת שתק', net: 'אין קשר', reply: 'תשובה פגומה' };
+
+function kindList(map){
+  return Object.keys(map || {}).filter(k => map[k])
+    .sort((a, b) => map[b] - map[a])
+    .map(k => map[k] + ' ' + (KIND_HE[k] || k)).join(' · ');
 }
 
 /* ---- what was actually sent -------------------------------------
@@ -1354,8 +1420,10 @@ function paintTrail(){
   const text = trailLine();
   line.textContent = text;
   line.hidden = !text;
-  $('health-line').textContent = healthLine();
-  $('health-line').hidden = !healthLine();
+  const tally = healthLine();
+  $('health-line').textContent = tally;
+  $('health-line').hidden = !tally;
+  $('b-health-reset').hidden = !tally;
 }
 
 /* A subscription the groups have not been told about.
@@ -1453,6 +1521,7 @@ async function logText(){
       (m.backend ? '' : ' no-backend') + (m.secret ? '' : ' no-secret') +
       (n === state.i ? ' ←' : '')),
     healthLine() || '—',
+    ...(healthWhy() ? [healthWhy()] : []),
     '— ' + new Date().toLocaleString('he-IL') + ' —',
     trailLine() || '(אין פעולות אחרונות)'
   ].join('\n');
@@ -1502,9 +1571,19 @@ function healthLine(){
   const h = health();
   const total = h.clean + h.recovered + h.failed;
   if (!total) return '';
+  const why = kindList(h.fail);
   return 'מאז ' + ddmm(h.since) + ': ' + total + ' פעולות · ' +
          h.recovered + ' נשלחו שוב · ' + h.failed + ' נכשלו' +
+         (why ? ' (' + why + ')' : '') +
          (h.worstMs ? ' · שרת עד ' + (h.worstMs / 1000).toFixed(1) + 'ש' : '');
+}
+
+/* The same tally, with the repeated attempts broken down too. One line more
+ * than the settings screen should carry, and exactly what somebody reading
+ * the copied log is after. */
+function healthWhy(){
+  const again = kindList(health().again);
+  return again ? 'ניסיונות חוזרים: ' + again : '';
 }
 
 const DEFAULT_DRIVERS_WANTED = 2;
@@ -5906,6 +5985,12 @@ $('i-nick').addEventListener('input', () => {
 });
 $('b-check-update').onclick = checkUpdate;
 $('b-push-fix').onclick = fixPushFromBar;
+$('b-health-reset').onclick = () => {
+  if (!confirm('לאפס את מונה התקלות ולהתחיל לספור מהיום?')) return;
+  saveHealth(blankHealth());
+  paintTrail();
+  banner('המונה אופס.');
+};
 $('b-copy-log').onclick = copyLog;
 $('b-share-log').onclick = shareLog;
 $('b-claim-new').onclick = () => registerMe({ force: true });
