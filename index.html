@@ -1220,7 +1220,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 129;
+const APP_VERSION = 130;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1420,6 +1420,7 @@ function paintTrail(){
   const text = trailLine();
   line.textContent = text;
   line.hidden = !text;
+  ensureHealth();
   const tally = healthLine();
   $('health-line').textContent = tally;
   $('health-line').hidden = !tally;
@@ -1567,10 +1568,23 @@ function trailLine(){
   }).join('\n');
 }
 
+/* Pins the day the counting started, which is otherwise today for as long as
+ * nothing has happened — and makes the one-time upgrade reset happen when the
+ * screen is opened rather than when the first action lands on it. */
+function ensureHealth(){
+  let raw = null;
+  try { raw = JSON.parse(localStorage.getItem(LS.health) || 'null'); } catch (e) { raw = null; }
+  if (!raw || !raw.fail || !raw.again) saveHealth(blankHealth());
+}
+
 function healthLine(){
   const h = health();
   const total = h.clean + h.recovered + h.failed;
-  if (!total) return '';
+  /* An empty tally is still worth a line. It says the counting is on and what
+     day it started, and it keeps the reset button on screen — a counter whose
+     controls appear only once it has something in it looks broken until the
+     moment it stops being interesting. */
+  if (!total) return 'מאז ' + ddmm(h.since) + ': אין עדיין פעולות';
   const why = kindList(h.fail);
   return 'מאז ' + ddmm(h.since) + ': ' + total + ' פעולות · ' +
          h.recovered + ' נשלחו שוב · ' + h.failed + ' נכשלו' +
