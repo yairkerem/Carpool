@@ -1220,7 +1220,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 130;
+const APP_VERSION = 131;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1665,18 +1665,17 @@ function el(tag, cls, text){
  * bring into view by name. The second beats the first: after saving an event
  * you want to be looking at that event, wherever it has moved to. */
 let boardAt = null;
+let boardDay = '';            // the day that position was recorded on
+let arriving = false;         // the board is being opened, not just redrawn
 let focusEvent = null;
 
 function show(name){
-  /* Read the board's position before the screen is hidden. A display:none
-     element reports scrollLeft 0, so opening the editor silently forgot where
-     you were — and saving then dropped you back at the first column, which is
-     the bug this comment exists to prevent coming back. */
-  const list = $('s-list');
-  if (list.classList.contains('active')){
-    const board = list.querySelector('.board');
-    if (board) boardAt = board.scrollLeft;
-  }
+  /* Holding a position is for a board that is rebuilt underneath somebody —
+     claiming a leg, a refresh landing — not for one being opened. Opening it
+     is a parent asking "what is next", and the answer to that is never the
+     greyed-out end of last week, whatever they were looking at before they
+     went into settings. */
+  if (name === 'list') arriving = true;
 
   for (const s of document.querySelectorAll('.screen')) s.classList.remove('active');
   $('s-' + name).classList.add('active');
@@ -3456,6 +3455,13 @@ function render(){
   list.textContent = '';
 
   const today = todayIso();
+
+  /* Two ways a remembered position stops being worth keeping: the board is
+     being opened rather than redrawn, and the day has turned under an app
+     left running overnight — yesterday's pixels point at yesterday's event. */
+  if (arriving || (boardDay && boardDay !== today)) boardAt = null;
+  arriving = false;
+  boardDay = today;
   /* Finished events stay on the board — the backend stops sending them after a
      week — so that last Tuesday's training can be copied into next Tuesday's
      rather than typed again. They are drawn grey and inert. */
@@ -3484,7 +3490,13 @@ function render(){
      reads as a save that did not work. */
   const wanted = focusEvent ? events.filter(e => e.id === focusEvent)[0] : null;
   const openAll = showAll || !later || (wanted && wanted.date > horizon);
-  const showing = openAll ? events : near;
+  /* The horizon holds back what is far off, and once in a while everything
+     still to happen is far off: a fortnight with no training in it leaves a
+     board of nothing but last week, greyed out, with the next event behind a
+     button. Whatever else is held back, the next one is never held back. */
+  const soon = near.filter(e => !isPast(e)).length ? [] :
+               events.filter(e => e.date > horizon && !isPast(e)).slice(0, 1);
+  const showing = openAll ? events : near.concat(soon);
 
   /* One column per event, laid out along the page rather than down it. The
      page is RTL, so a plain flex row already puts the soonest event on the
@@ -3498,12 +3510,16 @@ function render(){
     cols.push({ col: col, id: ev.id, past: isPast(ev) });
     board.appendChild(col);
   }
-  if (later){
+  /* The count is of what is actually still behind the button, which is one
+     fewer than the horizon held back whenever the next event was pulled in
+     front of it. */
+  const held = openAll ? later : later - soon.length;
+  if (held){
     /* Where each button lands: the first week being held back, and the next
        event still to happen. Both are worked out here, where the two lists
        are, rather than dug back out of the board. */
-    board.appendChild(moreCol(later, openAll, events[near.length],
-                              near.filter(e => e.date >= today)[0] || near[0]));
+    board.appendChild(moreCol(held, openAll, events[near.length + soon.length],
+                              showing.filter(e => e.date >= today)[0] || showing[0]));
   }
   list.appendChild(board);
 
@@ -3527,7 +3543,9 @@ function render(){
      right-hand end, in a right-to-left page — which is the last place the eye
      should land. Glide to the next event still to happen, so the movement
      itself says there is older stuff back there. */
-  const next = cols.filter(c => !c.past)[0];
+  /* Nothing still to come — a season that has ended, or a week off. Then the
+     most recent is the closest thing to "next", and it is at the far end. */
+  const next = cols.filter(c => !c.past)[0] || cols[cols.length - 1];
   if (next) reveal(next.col, true);
 }
 
@@ -6041,7 +6059,14 @@ $('b-paste-save').onclick = savePaste;
 $('paste-text').addEventListener('input', paintPasteClear);
 $('b-update').onclick = applyUpdate;
 
-$('b-edit-back').onclick = () => { show('list'); render(); };
+/* Backing out of an event goes back to that event. Opening the board is
+ * otherwise an instruction to land on the next one, which is right for the
+ * settings screen and wrong for the thing somebody was just looking at. */
+$('b-edit-back').onclick = () => {
+  if (state.editing) focusEvent = state.editing.id;
+  show('list');
+  render();
+};
 /* Wrapped, not passed: onclick hands its listener the click, and saveEvent's
    first argument is which weeks are meant. */
 $('b-save').onclick = () => saveEvent();

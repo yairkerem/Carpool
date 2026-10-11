@@ -117,7 +117,16 @@ who is bringing the children home at 18:15, and this puts that on one screen.
 - **This week and next, and no further.** A repeat that runs to the end of term
   is twenty cards of something nobody has to think about yet, sitting between
   the parent and the reason they opened the app. The rest wait behind a column
-  at the far end that says how many they are and shows them on one tap.
+  at the far end that says how many they are and shows them on one tap. The
+  one exception is the next event still to happen: when a fortnight holds
+  nothing, it is pulled in front of that column rather than left behind it.
+- **Opening the board lands on the next event.** Finished events stay for a
+  week, greyed out, and they sit at the near end — so the board glides past
+  them to what is still to come, and the movement says there is older material
+  back there. A board redrawn underneath somebody keeps its place instead: a
+  claim landing, or a refresh, should not move the page they are reading.
+  Backing out of an event comes back to that event, and a night spent with the
+  app open does not leave it on yesterday.
 - **Two legs per event, always shown, never confusable.** *הלוך* and *חזור* get
   their own colour, their own icon and their own word: mixing them up is the
   mistake that strands a child, so no one signal carries it alone. A leg with
