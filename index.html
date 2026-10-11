@@ -208,6 +208,13 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 /* The two legs share whatever height is left, evenly, so each gets a real
    panel instead of a strip. */
 .leg{flex:1 1 0;display:flex;flex-direction:column;min-height:0}
+/* While the admin is picking a driver, the legs stop sharing the column's
+   height and take the height they need: a list of names is the one thing in a
+   card that can be taller than the card. The column scrolls instead, which is
+   what it is already set up to do. Without this the names are squeezed into a
+   two-pixel sliver — a scrollable child has no minimum size of its own, so a
+   flexible parent takes every pixel of it first. */
+.col.picking .leg{flex:0 0 auto}
 /* The slack goes to the names, centred, rather than opening a hole between
    them and the button. Head at the top, who is driving in the middle of the
    panel, the thing you tap at the foot of it — and the same shape on every
@@ -385,12 +392,27 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 /* The admin's list of who else could be put on this leg. A row is a name and
    nothing else: the chip carries the colour, and a button around it keeps the
    whole line tappable in a moving car park. */
-.pickwho{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:8px}
+/* Its own scrolling area, not just more card. A column sits inside a board
+   that snaps horizontally, and a vertical drag that begins on a long list
+   inside it was being taken for a swipe across the board — so the list stayed
+   where it was and the tenth parent could not be reached. Bounded height plus
+   `touch-action: pan-y` says, to the browser and to the thumb, that up and
+   down belongs to this list. */
+.pickwho{
+  display:flex;flex-direction:column;align-items:stretch;gap:6px;margin-top:8px;
+  max-height:min(42vh, 220px);overflow-y:auto;overscroll-behavior:contain;
+  touch-action:pan-y;-webkit-overflow-scrolling:touch;
+  /* Nothing is cut off mid-row at the bottom edge: a half-visible name is how
+     a list says "there is more" without a scrollbar to say it with. */
+  padding-block:2px;
+}
 .whorow{
-  display:flex;align-items:center;width:100%;cursor:pointer;
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  width:100%;cursor:pointer;
   background:transparent;border:1px dashed var(--line);border-radius:10px;
   padding:6px 8px;
 }
+.whorow .plus{color:var(--muted);font-size:15px;font-weight:700;line-height:1}
 .whorow:active{background:var(--brand-soft);border-color:var(--brand)}
 
 
@@ -1230,7 +1252,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 132;
+const APP_VERSION = 133;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -3782,6 +3804,11 @@ function legBlock(ev, leg, past){
       open.onclick = () => {
         pick.hidden = !pick.hidden;
         open.textContent = pick.hidden ? '＋ שיבוץ הורה' : 'ביטול';
+        /* The column is told, not just the leg: both legs have to stop
+           sharing its height, or the one not being picked from collapses
+           into the space the list has taken. */
+        const col = box.closest('.col');
+        if (col) col.classList.toggle('picking', !pick.hidden);
         /* A column scrolls on its own, and the names open below its fold on a
            short phone — so the list that just appeared is brought to where
            somebody is looking, rather than left for them to find. */
@@ -3794,6 +3821,9 @@ function legBlock(ev, leg, past){
         row.type = 'button';
         row.setAttribute('aria-label', 'שיבוץ ' + (p.name || 'הורה') + ' לנסיעה');
         row.appendChild(personChip(p, true));
+        /* A name alone in a wide box reads as a field waiting to be filled in.
+           The sign at the far end says the row is a thing you press. */
+        row.appendChild(el('span', 'plus', '＋'));
         /* The board redraws on the way, which closes this list — tapping a
            name is the whole interaction, and there is nothing left to pick
            from once it has happened. */
