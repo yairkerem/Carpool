@@ -470,9 +470,11 @@ h1,h2,h3{margin:0;font-weight:700;line-height:1.25}
 .found-row .when{font-size:14px;font-weight:600;color:var(--ink);margin-top:3px}
 .found-row .where{font-size:13px;color:var(--muted);margin-top:2px;overflow-wrap:anywhere}
 .found-row .note{font-size:12px;color:var(--warn);font-weight:700;margin-top:3px}
-/* Quiet: it is an offer, not the thing the screen is for. */
+/* Quiet: they are offers, not the thing the screen is for. Wrapped, because
+   a row can hold two of them and a phone is narrow. */
+.found-row .rowtools{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .found-row .mergebtn{
-  margin-top:8px;font-size:12px;font-weight:700;color:var(--brand);
+  font-size:12px;font-weight:700;color:var(--brand);
   background:transparent;border:1px solid var(--line);border-radius:999px;
   padding:5px 11px;
 }
@@ -1040,7 +1042,8 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
     <textarea id="paste-text" dir="auto" rows="7"></textarea>
     <p class="hint">כל שורה שיש בה יום או תאריך הופכת לאירוע. שורה בלי שם לוקחת את
       השם מהשורה שמעליה, ושורת כותרת עם תאריך נותנת את התאריך לשורות שאחריה.
-      אפשר לתקן כל שם, ושתי שורות באותו יום — יציאה וחזרה — אפשר לאחד לאירוע אחד.</p>
+      אפשר לתקן כל שם, לערוך כל אירוע לפני ההוספה, ושתי שורות באותו יום —
+      יציאה וחזרה — אפשר לאחד לאירוע אחד.</p>
   </div>
 
   <div class="actions">
@@ -1252,7 +1255,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 135;
+const APP_VERSION = 136;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1681,6 +1684,9 @@ const state = {
   offline:false,
   setupReturn:null,   // where the gear was opened from
   editing:null,       // the event being edited, or null for a new one
+  /* The row of a pasted message being corrected in the editor: an event that
+     does not exist yet, on a screen built for ones that do. */
+  drafting:null,
   joining:false       // setup is adding a group rather than editing this one
 };
 
@@ -4803,12 +4809,23 @@ function paintFound(){
        event with two legs here, and the message is the only place that
        knows which two lines those are. Offered on the lower of the pair, so
        it reads as joining the one above it. */
+    const tools = el('div', 'rowtools');
+    /* Everything the parser guessed, not only the name: a time half an hour
+       out, a place it could not know, a day it read from the heading above
+       the wrong line. The editor is where those are fixed. */
+    const fix = el('button', 'mergebtn', '✎ עריכה');
+    fix.type = 'button';
+    fix.setAttribute('aria-label', 'עריכת האירוע לפני ההוספה');
+    fix.onclick = () => editFound(i);
+    tools.appendChild(fix);
+
     if (mergeMate(i) >= 0){
       const join = el('button', 'mergebtn', '⤒ איחוד עם האירוע שמעליו');
       join.type = 'button';
       join.onclick = () => mergeFound(i);
-      what.appendChild(join);
+      tools.appendChild(join);
     }
+    what.appendChild(tools);
 
     row.appendChild(what);
     box.appendChild(row);
@@ -4878,7 +4895,8 @@ async function savePaste(){
     time: e.time || '',
     place: e.place || '',
     backTime: e.backTime || '',
-    note: '',
+    /* A note typed into a row's editor rides along with it. */
+    note: e.note || '',
     createdBy: state.me ? state.me.id : '',
     series: ''
   }));
@@ -4916,6 +4934,51 @@ async function savePaste(){
 }
 
 /* ---- the editor ----------------------------------------------- */
+/* A row read out of a pasted message, opened in the editor.
+ *
+ * The parser gets a line roughly right and the row shows what it made of it,
+ * but "roughly right" covers a time that should be half an hour later and a
+ * place it could not know — and a name field alone cannot fix either. So the
+ * whole editor is used, the one with the date rail and the group's places in
+ * it, rather than a second set of smaller fields that behave almost the same.
+ *
+ * Nothing is saved from there. The editor's fields are read back into the row
+ * and the screen returns to the list, which is still the place where the
+ * ticked rows are written, all of them at once. */
+function editFound(i){
+  const ev = foundEvents[i];
+  if (!ev) return;
+  state.drafting = i;
+  openEdit({ id: 'draft', title: ev.title, date: ev.date, time: ev.time || '',
+             backTime: ev.backTime || '', place: ev.place || '', note: '', series: '' });
+  $('edit-h').textContent = 'אירוע מההודעה';
+  /* Neither applies to a row: there is nothing on the board to delete, and a
+     repeat is made when an event is created, not while a message is read. */
+  $('delete-row').hidden = true;
+  $('e-title').focus();
+}
+
+/* Back into the list, with or without what was typed. */
+function closeDraft(base){
+  const i = state.drafting;
+  state.drafting = null;
+  state.editing = null;
+  if (base && foundEvents[i]){
+    const ev = foundEvents[i];
+    ev.title = base.title;
+    ev.date = base.date;
+    ev.time = base.time;
+    ev.backTime = base.backTime;
+    ev.place = base.place;
+    ev.note = base.note;
+    /* Edited by hand is edited on purpose: a row the parser had marked as
+       already on the board stays ticked or unticked as the parent left it,
+       and the note under it is worked out again from the new name and day. */
+  }
+  show('paste');
+  if (foundEvents.length) paintFound();
+}
+
 function openEdit(ev){
   state.editing = ev || null;
   $('edit-h').textContent = ev ? 'עריכת אירוע' : 'אירוע חדש';
@@ -4928,6 +4991,10 @@ function openEdit(ev){
   $('e-until').value = '';
   $('repeat-field').hidden = !!ev;      // repeating is a thing you do when creating
   $('delete-row').hidden = !ev;
+  /* A row of a pasted message is confirmed, not saved: nothing leaves this
+     screen for the board until the list itself is sent. */
+  $('b-save').querySelector('span').textContent =
+    state.drafting === null ? 'שמירה' : 'אישור';
   /* Never a stale question about the event before this one. */
   $('delete-ask').hidden = true;
   $('save-ask').hidden = true;
@@ -4989,6 +5056,12 @@ async function saveEvent(scope){
        An event does not join or leave a repeat by being edited. */
     series: state.editing ? (state.editing.series || '') : ''
   };
+
+  /* A row of a pasted message goes back to the list it came from. Everything
+     above this line is the same validation every event gets — a name, a date
+     the app understands, times it can read — so a row corrected here is as
+     sound as one typed in from scratch. */
+  if (state.drafting !== null){ closeDraft(base); return; }
 
   const plan = state.editing ? { dates: [] } : repeatPlan();
   if (plan.error){
@@ -6190,6 +6263,9 @@ $('b-update').onclick = applyUpdate;
  * otherwise an instruction to land on the next one, which is right for the
  * settings screen and wrong for the thing somebody was just looking at. */
 $('b-edit-back').onclick = () => {
+  /* A row being corrected goes back to its list, unchanged — backing out of
+     an editor has never meant "keep what I typed" anywhere else here. */
+  if (state.drafting !== null){ closeDraft(null); return; }
   if (state.editing) focusEvent = state.editing.id;
   show('list');
   render();

@@ -51,6 +51,14 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   unticked and says so, **ניקוי** throws the lot away if the message was read
   wrongly, and what is ticked is written in one request.
 
+  **✎ עריכה** fixes the rest of a row — a time half an hour out, a place the
+  message never named, a day read from the heading above the wrong line. The
+  row opens in the ordinary event editor, date rail and saved places and all,
+  rather than in a second set of smaller fields that behave almost the same,
+  and it is validated exactly as a typed-in event is. **אישור** puts what you
+  typed back into the row; backing out keeps the row as it was. Nothing
+  reaches the board until the list itself is sent.
+
   A name is taken from the line, or from the heading above it, or — when the
   message says what kind of outing it is and nothing more — built as
   *אימון יום שלישי*, *משחק שבת*, which is how these are spoken about anyway.
