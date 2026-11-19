@@ -855,6 +855,19 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
       לנסיעה מלאה — זה רק צובע אותה.</p>
 
     <div class="field" style="margin-top:16px">
+      <label for="i-name-new">שמות האירועים של הקבוצה</label>
+      <div id="names-edit" class="places-edit"></div>
+      <div class="place-add">
+        <input id="i-name-new" type="text" dir="auto" maxlength="40"
+               autocomplete="off" placeholder="אימון">
+        <button type="button" id="b-name-add">הוספה</button>
+      </div>
+      <p class="hint">אירוע חדש ייפתח עם השם הראשון ברשימה ויום האירוע אחריו —
+        "אימון יום שלישי". השאר מוצעים בלחיצה אחת, ואפשר תמיד לכתוב שם אחר.
+        גם קריאת הודעה שהודבקה משתמשת ברשימה הזאת.</p>
+    </div>
+
+    <div class="field" style="margin-top:16px">
       <label for="i-place-new">המקומות של הקבוצה</label>
       <div id="places-edit" class="places-edit"></div>
       <div class="place-add">
@@ -1076,6 +1089,10 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
            placeholder="אימון כדורגל יום שלישי 16:30-18:15 במגרש הדשא">
     <p class="hint">אפשר לכתוב הכול בשורה אחת — יום, שעות ומקום ימולאו לבד.
       אפשר גם למלא רק את מה שרוצים.</p>
+    <!-- What this group calls its outings, each with the day of the event
+         after it. Same idea as the places below: the field stays free text,
+         and the list is only there to save the typing. -->
+    <div id="name-picks" class="picks" hidden></div>
     <p class="hint auto" id="title-read" hidden></p>
   </div>
 
@@ -1255,7 +1272,7 @@ fieldset legend{font-size:14px;font-weight:600;margin-bottom:6px;padding:0}
 
 /* Bump together with CACHE_VERSION in sw.js, or phones keep serving the old
    shell and the number in settings starts lying. */
-const APP_VERSION = 136;
+const APP_VERSION = 137;
 
 /* How many drivers a leg wants before it counts as sorted. The group's own
  * admin sets it — a squad that needs three cars and two siblings sharing one
@@ -1677,6 +1694,7 @@ const state = {
   me:null,            // {id,name,color,phone} — id is issued by the backend
   group:'', parents:[], events:[],
   places:[],          // the admin's list of where this group meets
+  names:[],           // and what it calls its outings: אימון, משחק
   remindAt:'19:00',   // when the evening-before reminder goes out
   newcomers:[],       // members the admin has not been told about yet
   driversWanted:DEFAULT_DRIVERS_WANTED,   // the group's own, once the backend says
@@ -2015,6 +2033,76 @@ function echoDate(){
   say('date-read', v ? dayLabel(v) : '');
   $('date-read').className = 'hint auto';
   paintRail(false);
+  /* The suggested name carries the day, so moving the day moves the name. */
+  if (v) suggestTitle(v);
+  paintNamePicks();
+}
+
+/* ---- what this group calls its outings ------------------------ *
+ * A group names the same two or three things all season — אימון, משחק — and
+ * typing one of them into every event, with the day after it, is the typing
+ * this screen can do for somebody. The admin writes the list once in
+ * settings; the first name in it is what a new event opens with.
+ *
+ * The field stays free text, exactly like the place below it. A suggestion
+ * that cannot be typed over is not a suggestion. */
+function nameFor(iso){
+  /* Whichever of the group's names is in play — the one tapped, or the first
+     in the list until somebody taps another. Forgetting which was chosen is
+     how picking "משחק" and then moving the day put "אימון" back. */
+  const word = suggestedWord || (state.names || [])[0];
+  return (word && iso) ? word + ' ' + dayWord(iso) : '';
+}
+
+/* The last thing this wrote into the field, so it can tell its own suggestion
+ * from a name somebody meant, and the name it was built from. */
+let suggestedTitle = '';
+let suggestedWord = '';
+
+function suggestTitle(iso){
+  /* Only an event being made. An event that exists has a name already, and a
+     row read out of a message has whatever the message called it. */
+  if (state.editing || state.drafting !== null) return;
+  const box = $('e-title');
+  const want = nameFor(iso);
+  if (!want) return;
+  /* Written over by hand is left alone. An empty field is not: emptying it is
+     how somebody asks for the suggestion back. */
+  if (box.value.trim() && box.value !== suggestedTitle) return;
+  box.value = want;
+  suggestedTitle = want;
+}
+
+function paintNamePicks(){
+  const box = $('name-picks');
+  if (!box) return;
+  const list = state.names || [];
+  box.textContent = '';
+  box.hidden = !list.length;
+  if (box.hidden) return;
+
+  const iso = dateValue();
+  const current = $('e-title').value.trim();
+  for (const name of list){
+    const want = iso ? name + ' ' + dayWord(iso) : name;
+    const b = el('button', 'pick', name);
+    b.type = 'button';
+    b.setAttribute('aria-label', 'קריאת האירוע ' + want);
+    b.setAttribute('aria-pressed', want === current ? 'true' : 'false');
+    b.onclick = () => {
+      $('e-title').value = want;
+      /* Chosen, so the day in it keeps up with the date the same way the
+         opening suggestion does. */
+      suggestedTitle = want;
+      suggestedWord = name;
+      /* And the title stops being read for a day, a time or a place: this is
+         a name somebody picked, not a sentence they wrote. */
+      resetAuto(want);
+      say('title-read', '');
+      paintNamePicks();
+    };
+    box.appendChild(b);
+  }
 }
 
 function tidyDate(){
@@ -2312,7 +2400,7 @@ function saveBoard(){
   if (!m) return;
   m.board = {
     group: state.group, driversWanted: state.driversWanted,
-    places: state.places, remindAt: state.remindAt,
+    places: state.places, names: state.names, remindAt: state.remindAt,
     parents: state.parents, events: state.events
   };
   persist();
@@ -2323,6 +2411,7 @@ function loadBoard(){
   state.group = (b && b.group) || (here() || {}).name || '';
   state.driversWanted = (b && b.driversWanted) || DEFAULT_DRIVERS_WANTED;
   state.places = (b && b.places) || [];
+  state.names = (b && b.names) || [];
   state.remindAt = (b && b.remindAt) || '19:00';
   state.newcomers = ((here() || {}).news || []).slice();
   state.parents = (b && b.parents) || [];
@@ -2429,6 +2518,7 @@ async function refresh(quiet){
     if (r.version) state.backendVersion = r.version;
     if (r.driversWanted) state.driversWanted = r.driversWanted;
     if (r.places) state.places = r.places;
+    if (r.names) state.names = r.names;
     if (r.remindAt) state.remindAt = r.remindAt;
 
     /* Reading the board is still allowed after removal — the secret is the
@@ -4624,9 +4714,13 @@ function suggestName(own, above, line, date){
   const kind = eventKind(line) || eventKind(above);
   const named = realName(own) || realName(above);
   if (named && named !== kind && !justKind(named, kind)) return named;
-  if (!kind) return '';
+  /* Nothing in the line says what it is, so the group's own default does —
+     the same name a new event would open with. Left empty only by a group
+     that has not written one down. */
+  const word = kind || (state.names || [])[0] || '';
+  if (!word) return '';
   const day = date ? dayWord(date) : '';
-  return day ? kind + ' ' + day : kind;
+  return day ? word + ' ' + day : word;
 }
 
 /* The two kinds of outing a parents' group writes about. Anything else is
@@ -4646,8 +4740,15 @@ const KINDS = {
   'משחק':'משחק', 'משחקים':'משחק', 'משחקי':'משחק'
 };
 
+/* The group's own words first. A troop that says "צופים" and a swimming club
+ * that says "חוג" are not worse served by this than a football team, and the
+ * admin has already written the list down in settings. The two built in stay
+ * underneath it, because a group that never opened that screen still writes
+ * אימון and משחק in its messages. */
 function kindOfWord(w){
-  return KINDS[w] || KINDS[stripPrefix(w)] || '';
+  const mine = (state.names || []).filter(
+    n => cleanish(n) === cleanish(w) || cleanish(n) === cleanish(stripPrefix(w)))[0];
+  return mine || KINDS[w] || KINDS[stripPrefix(w)] || '';
 }
 
 /* "אימונים לשבוע הבא" is the message announcing itself, not the name of a
@@ -4983,6 +5084,9 @@ function openEdit(ev){
   state.editing = ev || null;
   $('edit-h').textContent = ev ? 'עריכת אירוע' : 'אירוע חדש';
   $('e-title').value = ev ? ev.title : '';
+  // whatever the last event suggested is gone
+  suggestedTitle = '';
+  suggestedWord = '';
   $('e-date').value = dateText(ev ? ev.date : todayIso());
   $('e-time').value = ev ? (ev.time || '') : '';
   $('e-back').value = ev ? (ev.backTime || '') : '';
@@ -5010,8 +5114,9 @@ function openEdit(ev){
 
   /* Seeded with whatever the title already says, so opening an event whose
      name mentions a day or a place does not move it on sight. Only a change
-     to what the title says speaks. */
-  resetAuto(ev ? ev.title : '');
+     to what the title says speaks. The field is read rather than `ev`, so a
+     suggested name — which has a day in it — is seeded too. */
+  resetAuto($('e-title').value);
 
   show('edit');
   if (!ev) $('e-title').focus();
@@ -5349,6 +5454,9 @@ function openSetup(message){
   editPlaces = state.places.slice();
   $('i-place-new').value = '';
   paintPlacesEdit();
+  editNames = state.names.slice();
+  $('i-name-new').value = '';
+  paintNamesEdit();
 
   /* Not `here` — that is the function returning the active membership, and a
      const of the same name puts it in the temporal dead zone for the whole of
@@ -5702,6 +5810,52 @@ function addPlace(){
   box.focus();                       // several in a row is the normal way to fill it
 }
 
+/* The same list, for what the group calls its outings. Kept beside the places
+ * rather than folded into them: they are edited in the same breath, they save
+ * in the same request, and the two are the only things on this screen a
+ * parent fills in by typing the same word over and over. */
+let editNames = [];
+
+function paintNamesEdit(){
+  const box = $('names-edit');
+  box.textContent = '';
+  if (!editNames.length){
+    const empty = el('p', 'hint', 'עדיין אין שמות ברשימה.');
+    empty.style.margin = '0';
+    box.appendChild(empty);
+    return;
+  }
+  editNames.forEach(function (name, i){
+    const row = el('div', 'place-row');
+    /* The first is the one a new event opens with, and a list whose order
+       matters has to say so. */
+    row.appendChild(el('span', null, name + (i === 0 ? ' · ברירת מחדל' : '')));
+    const x = el('button', 'kick', '×');
+    x.type = 'button';
+    x.title = 'הסרה מהרשימה';
+    x.setAttribute('aria-label', 'הסרת ' + name + ' מהרשימה');
+    x.onclick = () => { editNames.splice(i, 1); paintNamesEdit(); };
+    row.appendChild(x);
+    box.appendChild(row);
+  });
+}
+
+function addName(){
+  const box = $('i-name-new');
+  const name = box.value.trim().replace(/\s+/g, ' ');
+  if (!name) return;
+  if (editNames.some(p => p.toLowerCase() === name.toLowerCase())){
+    say('group-msg', 'השם הזה כבר ברשימה.', 'err');
+    box.select();
+    return;
+  }
+  editNames.push(name);
+  box.value = '';
+  say('group-msg', '');
+  paintNamesEdit();
+  box.focus();
+}
+
 function sameList(a, b){
   return a.length === b.length && a.every((v, i) => v === b[i]);
 }
@@ -5839,6 +5993,12 @@ async function pushGroupSettings(){
       ? 'רשימת המקומות עודכנה (' + editPlaces.length + ')'
       : 'רשימת המקומות רוקנה');
   }
+  if (!sameList(editNames, state.names)){
+    req.names = editNames;
+    done.push(editNames.length
+      ? 'רשימת שמות האירועים עודכנה (' + editNames.length + ')'
+      : 'רשימת שמות האירועים רוקנה');
+  }
   if (!done.length) return [];
 
   /* Tried twice before giving up.
@@ -5879,6 +6039,10 @@ async function pushGroupSettings(){
   if (r.places !== undefined){
     state.places = r.places || [];
     editPlaces = state.places.slice();
+  }
+  if (r.names !== undefined){
+    state.names = r.names || [];
+    editNames = state.names.slice();
   }
   const m = here();
   if (m && r.group !== undefined && m.name !== r.group){ m.name = r.group; persist(); }
@@ -6170,6 +6334,10 @@ $('i-place-new').addEventListener('keydown', e => {
   /* Enter in this box adds the place; without it the form would try to
      submit and the typed name would vanish. */
   if (e.key === 'Enter'){ e.preventDefault(); addPlace(); }
+});
+$('b-name-add').onclick = addName;
+$('i-name-new').addEventListener('keydown', e => {
+  if (e.key === 'Enter'){ e.preventDefault(); addName(); }
 });
 
 $('b-share-join').onclick = toggleShareSteps;

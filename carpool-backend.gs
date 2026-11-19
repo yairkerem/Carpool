@@ -29,7 +29,7 @@
  * so those two permissions are asked for when you opt in, not before.
  */
 
-const BACKEND_VERSION = 29;
+const BACKEND_VERSION = 30;
 
 const PROPS = PropertiesService.getScriptProperties();
 const TZ = 'Asia/Jerusalem';
@@ -76,7 +76,14 @@ const RIDERS = { to: 'toRiders', back: 'backRiders' };
 const GROUP_COLS = ['id', 'name', 'secret', 'driversWanted', 'createdAt', 'removed',
                     'places', 'remindAt', 'remindedOn',
                     /* The evening the weekly look-ahead last ran, so it runs once. */
-                    'weeklyOn'];
+                    'weeklyOn',
+                    /* What this group calls its outings — "אימון", "משחק".
+                       A list on the row for the same reason the places are.
+                       At the END, and every new column after it the same way:
+                       readAll maps columns by position, so a name inserted in
+                       the middle hands every later column the one before it's
+                       values on every sheet already written. */
+                    'names'];
 
 /* The group this request is for, resolved once in doPost and read by
  * everything downstream rather than threaded through twenty signatures. Safe
@@ -326,7 +333,7 @@ function setGroupSettings(req) {
 
     /* Everything is checked before anything is written, so a bad reminder time
        cannot leave the name changed and the rest not. */
-    let name = null, drivers = null, at = null, places = null;
+    let name = null, drivers = null, at = null, places = null, names = null;
 
     if (req.name !== undefined) {
       name = cleanName(req.name);
@@ -354,10 +361,21 @@ function setGroupSettings(req) {
       });
     }
 
+    if (req.names !== undefined) {
+      names = [];
+      (Array.isArray(req.names) ? req.names : []).forEach(function (raw) {
+        const one = cleanName(raw).slice(0, MAX_NAME_LEN);
+        if (!one) return;
+        if (names.some(n => n.toLowerCase() === one.toLowerCase())) return;
+        if (names.length < MAX_NAMES) names.push(one);
+      });
+    }
+
     if (name !== null) row.name = name;
     if (drivers !== null) row.driversWanted = String(drivers);
     if (at !== null) row.remindAt = at;
     if (places !== null) row.places = JSON.stringify(places);
+    if (names !== null) row.names = JSON.stringify(names);
 
     writeRow(sh, GROUP_COLS, row);
     CURRENT = row;
@@ -367,7 +385,8 @@ function setGroupSettings(req) {
       group: CURRENT.name || '',
       driversWanted: driversWanted(),
       remindAt: remindAt(),
-      places: groupPlaces()
+      places: groupPlaces(),
+      names: groupNames()
     };
   });
 }
@@ -382,6 +401,15 @@ function setGroupSettings(req) {
  * and a tab per setting is a tab to keep in step forever. */
 const MAX_PLACES = 30;
 const MAX_PLACE_LEN = 60;
+
+/* And what the group calls its outings. Fewer, because a list of names to
+ * choose between stops being a help at about six. */
+const MAX_NAMES = 8;
+const MAX_NAME_LEN = 40;
+
+function groupNames() {
+  return parseList(CURRENT && CURRENT.names);
+}
 
 function groupPlaces() {
   return parseList(CURRENT && CURRENT.places);
@@ -1258,6 +1286,9 @@ function state() {
     groupId: CURRENT.id,
     driversWanted: driversWanted(),
     places: groupPlaces(),
+    /* What this group calls its outings, so a new event can open already
+       named and a pasted message can be read in the group's own words. */
+    names: groupNames(),
     remindAt: remindAt(),
     parents: people,
     events: rows,

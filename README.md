@@ -191,7 +191,7 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   exactly as they were: a record of who drove, not a plan that can go wrong.
 
   The admin also names the group, sets how many drivers a leg wants before it
-  counts as sorted, and keeps the group's list of places.
+  counts as sorted, and keeps the group's lists of places and event names.
 
   On a leg that has not happened yet, the admin can put another parent on it
   (**＋ שיבוץ הורה**) as well as take one off (**✕**). Driving is volunteered
@@ -229,6 +229,17 @@ who is bringing the children home at 18:15, and this puts that on one screen.
   the training moves somewhere else is exactly the week a closed list would be
   in the way — and the saved names feed the title parser too, so a venue is
   understood from a typed line before anyone has ever met there.
+- **What the group calls its outings, saved once too.** The same list again,
+  for names rather than venues: a group writes *אימון* and *משחק* all season,
+  a swimming club writes *חוג*, a school run writes *הסעה*. The admin writes
+  them in settings and a new event opens already named — the first in the list
+  plus the day it falls on, *אימון יום שלישי* — which moves with the date while
+  nobody has typed over it, and changes to *משחק יום שלישי* on one tap of the
+  chip beside the field. The list is also the vocabulary the message parser
+  looks for, so a pasted line that says *חוג* is understood by a group that
+  says *חוג*, and a row the parser cannot name at all gets the group's default
+  instead of being left blank. A group that writes no list keeps the old
+  behaviour exactly: nothing is suggested, and nothing is invented.
 - **One entry, however many devices.** A second phone registering under a name
   the group already has is offered that member to continue as, so a laptop and
   a phone stay one person — and so two parents of a household can share one
