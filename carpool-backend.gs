@@ -178,8 +178,14 @@ function stampRows(from, to) {
 /* Everything a maintenance function has to say, said in the one place anybody
  * looks. A function run from the editor that returns quietly down one of its
  * paths reads as a function that did nothing at all. */
+/* Both ways on purpose. Logger.log is what the editor prints in its own
+ * transcript when you press Run; console.log is what survives into the
+ * Executions list, where a run looked at ten minutes later still has its
+ * output. Reading "nothing in the log" after a test that plainly worked is a
+ * worse outcome than one duplicated line. */
 function say_(msg) {
   Logger.log(msg);
+  console.log(msg);
   return msg;
 }
 
